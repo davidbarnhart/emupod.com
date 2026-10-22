@@ -34,7 +34,7 @@ pre.oneline{font-size:clamp(11px,3vw,14px);padding-left:12px;padding-right:12px}
 <code>|</code><span>&larr; the pipe: hands what curl downloaded straight to the next command</span>
 <code>sh</code><span>&larr; the shell: runs the install script it receives</span>
 </div>
-<p>The script is short: <a href="install.sh">read it first</a>. It checks your machine, downloads the emupod release for it and verifies the checksum, installs into <code>~/emupod</code>, asks where your cards and music live, can start emupod at boot, and prints the address to open on your phone (for example <code>http://192.168.1.20:8797/</code>).</p>
+<p>The script is short: <a href="install.sh">read it first</a>. It checks your machine, downloads the emupod release for it and verifies the checksum, and installs into a folder you choose (<code>~/emupod</code> by default). It asks where your cards live, looks for music folders on your machine and lets you pick one, picks a free port, and asks whether your phone may reach it over your network. If you want to burn physical cards, it asks for <code>sudo</code> to add a rule that lets your user write to USB card readers; nothing else uses <code>sudo</code>. It can start emupod at boot, and it prints the address to open on your phone (for example <code>http://192.168.1.20:8797/</code>).</p>
 <p>The first start puts the built-in card, Rainbow Road, in place (a one-time download of a few megabytes). Cards are virtual. You can add your own music to cards, duplicate cards, and even burn them back to a physical iPod-compatible flash card in your host's USB port.</p>
 
 <h2>Or with Docker</h2>
@@ -46,7 +46,7 @@ docker run -p 8797:8797 -v emupod-cards:/cards emupod</pre>
 <div class="note"><strong>How tested is the Docker container?</strong> Not very. If you launch this Docker container and then later that day you get absolutely CHOMPED by an alligator, I&rsquo;m basically 50% sure the Docker container had nothing to do with it. Please send me your feedback on attempted Docker deployments.</div>
 
 <h2>Uninstall</h2>
-<p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose.</p>
+<p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose. If you allowed card burning, also delete <code>/etc/udev/rules.d/70-emupod-sd.rules</code> (with sudo).</p>
 
 <h2>What? Why? How?</h2>
 <p><strong>What:</strong> this is full emulation of the 1st generation iPod. That means it runs the iPod&rsquo;s original ARM machine code on an emulated PP5002 and emulates the iPod&rsquo;s other internal chips. It can be run temporarily in browser or installed on a device like a Raspberry Pi and controlled via a local webpage.</p>
