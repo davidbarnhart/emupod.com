@@ -110,11 +110,14 @@ export class CardManager {
   // ---- firmware
   firmwareChoices() {
     const out = this.catalog.filter(e => (e.models || []).includes('1G')).map(e => ({ id: 'catalog:' + e.file,
-      label: (e.maker || 'Apple') + ' ' + e.version + ' (' + e.build_date + ')' + (this.fwCache.has(e.file) ? '' : ', downloads'), default: !!e.default }));
+      label: (e.maker || 'Apple') + ' ' + e.version + ' (' + e.build_date + ')' + (this.fwCache.has(e.file) ? '' : ', downloads'), default: e.file === this.defaultFile() }));
     for (const n of [...this.userFw].sort()) out.push({ id: 'file:/fw/' + n, label: n + ' (fw)' });
     return out;
   }
-  defaultFirmware() { const e = this.catalog.find(e => e.default && (e.models || []).includes('1G')); return e && 'catalog:' + e.file; }
+  // new cards get flashpod's newest 1st-generation firmware (1.6 today), else the catalog's default
+  defaultFile() { const g = this.catalog.filter(e => (e.models || []).includes('1G')), f = g.filter(e => e.maker === 'flashpod').sort((a, b) => (b.build_date || '').localeCompare(a.build_date || ''))[0];
+    const e = f || g.find(e => e.default); return e && e.file; }
+  defaultFirmware() { const f = this.defaultFile(); return f && 'catalog:' + f; }
   async firmware(id, card) {
     if (typeof id === 'string' && id.startsWith('file:/fw/')) {
       const n = id.slice(9); if (!this.userFw.has(n)) throw new CardError('not an offered firmware file'); return this.metaRead('f__' + n);

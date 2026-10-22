@@ -205,7 +205,7 @@ function setup(){if(editing)return;const c=S.cards.find(x=>x.name===NAME);
    'It cannot be changed. Duplicate it to get a card you can add songs to.</div></div>';
  if(need&&!c.readonly)h+='<div class="box"><h2>Format</h2><div>'+esc(need)+'</div>'+
    '<div class="row"><button class="btn pri" data-act="partition"'+off+'>Partition and format</button></div>'+
-   '<div class="mute small">This lays out the whole card: a firmware partition (holding Apple’s 1.5 until you change it under Firmware) '+
+   '<div class="mute small">This lays out the whole card: a firmware partition (holding flashpod 1.6, Apple’s 1.5 with fixes and FLAC, until you change it under Firmware) '+
    'and a music partition with an empty library. Anything on the card now is erased.</div></div>';
  if(ready&&!c.readonly){
   h+='<div class="box"><h2>Firmware</h2><div class="row"><select data-keep="fw" style="flex:1;min-width:220px">'+fwOpts+'</select>'+

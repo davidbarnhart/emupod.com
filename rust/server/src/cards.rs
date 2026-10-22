@@ -322,11 +322,12 @@ impl Store {
         base.join("flashpod").join("firmware")
     }
     pub fn firmware_choices(&self) -> Vec<Value> {
+        let preferred = self.default_firmware();
         let mut out: Vec<Value> = self.catalog.iter().filter(|e| e["models"].as_array().map(|m| m.iter().any(|x| x == "1G")).unwrap_or(false)).map(|e| {
             let file = e["file"].as_str().unwrap_or("");
             let local = Self::cache_dir().join(file).is_file();
             json!({"id": format!("catalog:{file}"), "label": format!("{} {} ({}){}", e["maker"].as_str().unwrap_or("Apple"), e["version"].as_str().unwrap_or("?"),
-                   e["build_date"].as_str().unwrap_or("?"), if local { "" } else { ", downloads" }), "default": e["default"] == true})
+                   e["build_date"].as_str().unwrap_or("?"), if local { "" } else { ", downloads" }), "default": file == preferred})
         }).collect();
         for d in &self.firmware_dirs {
             let mut files = vec![];
@@ -393,8 +394,14 @@ impl Store {
         }
         card_err("choose a firmware")
     }
+    /// The firmware new cards get, and the one the page offers first: flashpod's newest for the 1st generation (1.6 today: Apple's 1.5
+    /// with its fixes, and FLAC), else the catalog's default, else Apple's 1.5.
     fn default_firmware(&self) -> String {
-        self.catalog.iter().find(|e| e["default"] == true).or_else(|| self.catalog.iter().find(|e| e["osos_sha256"] == STOCK_OSOS))
+        let first_gen = |e: &&Value| e["models"].as_array().map(|m| m.iter().any(|x| x == "1G")).unwrap_or(false);
+        self.catalog.iter().filter(first_gen).filter(|e| e["maker"] == "flashpod")
+            .max_by_key(|e| e["build_date"].as_str().unwrap_or("").to_string())
+            .or_else(|| self.catalog.iter().find(|e| e["default"] == true))
+            .or_else(|| self.catalog.iter().find(|e| e["osos_sha256"] == STOCK_OSOS))
             .and_then(|e| e["file"].as_str()).unwrap_or("").to_string()
     }
 
