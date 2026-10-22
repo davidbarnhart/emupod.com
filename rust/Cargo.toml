@@ -1,0 +1,10 @@
+[workspace]
+members = ["armcore", "pp5002", "pybind", "wasm", "flashpod-wasm", "server"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

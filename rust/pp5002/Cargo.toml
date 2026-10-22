@@ -1,0 +1,15 @@
+[package]
+name = "pp5002"
+version = "0.1.0"
+edition = "2021"
+description = "The PortalPlayer PP5002 as emupod models it: two ARM7TDMI cores, one memory, the devices the iPod's firmware uses"
+license = "MIT"
+
+[dependencies]
+armcore = { path = "../armcore" }
+libc = { version = "0.2", optional = true }
+
+[features]
+stats = ["armcore/stats"]
+# a sampling profiler for bench (SIGPROF, program counters to a file)
+prof = ["dep:libc"]

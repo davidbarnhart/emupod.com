@@ -1,0 +1,20 @@
+# Apple firmware (user-supplied; copyrighted -- never commit)
+roms/*.ipsw
+roms/*.bin
+
+# Generated emulator artifacts
+work/
+*.bin
+*.img
+*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+emupod/emupod_rs*.so

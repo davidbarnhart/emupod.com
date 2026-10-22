@@ -1,0 +1,389 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#1c1c1e"><title>emupod cards</title>
+<style>
+:root{--bg:#e9e9ec;--fg:#1c1c1e;--mute:#6c6c72;--card:#fff;--line:#d4d4d8;--acc:#0a66c2;--warn:#c4321f;--ok:#1f9d48;--chip:#f1f1f3}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--fg:#ececee;--mute:#9a9aa0;--card:#1f1f23;--line:#34343a;--acc:#5ea3ff;--warn:#ff6b57;--ok:#35c26a;--chip:#2a2a30}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,*{touch-action:manipulation}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:max(12px,env(safe-area-inset-top)) 16px 48px}
+a{color:var(--acc);text-decoration:none}
+.crumbs{font-size:14px;color:var(--mute);margin:6px 0 4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.crumbs b{color:var(--fg);font-weight:600}
+h1{font-size:22px;margin:4px 0 14px}
+.err{color:var(--warn);font-size:14px;margin:6px 0;white-space:pre-wrap}
+.mute{color:var(--mute);font-size:13px}
+/* the library: a grid of SD cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:18px 14px}
+.tile{display:flex;flex-direction:column;align-items:center;text-align:center;color:var(--fg);padding:8px 6px 10px;border-radius:16px;
+ border:4px solid transparent;cursor:pointer}
+.tile:hover{background:rgba(127,127,127,.08)}
+.tile.boot{border-color:var(--ok)}
+.tile svg{width:96px;height:auto;display:block;filter:drop-shadow(0 3px 6px rgba(0,0,0,.18))}
+.tile .nm{font-weight:650;margin-top:8px;word-break:break-word}
+.tile .fw{font-size:13px;color:var(--mute)}
+.tile .tag{font-size:11px;font-weight:700;color:var(--ok);letter-spacing:.04em;text-transform:uppercase;margin-top:2px}
+.tile.busy svg{opacity:.55}
+/* card setup */
+.box{background:var(--card);border-radius:14px;box-shadow:0 0 0 1px var(--line) inset;padding:14px;margin:12px 0}
+.disks{width:100%;border-collapse:collapse;font-size:14px}.disks th{text-align:left;font-size:12px;color:var(--mute);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+.disks td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.disks td:nth-child(3){white-space:nowrap}.disks td:first-child{width:18px}.disks tr.pick{cursor:pointer}.disks tr.sel td{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+.disks tr.no td{color:var(--mute)}.disks .why{color:var(--warn);font-size:12px;margin-top:2px}.disks input{margin:0}
+.burnbar{width:100%;height:14px;margin:8px 0 4px;accent-color:var(--acc)}
+.burned{font-size:22px;font-weight:800;color:var(--ok);text-align:center;padding:22px 10px;box-shadow:0 0 0 3px var(--ok) inset}
+.box h2{font-size:16px;margin:0 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.btn{border:0;border-radius:10px;padding:9px 13px;font:inherit;background:var(--chip);color:var(--fg);box-shadow:0 0 0 1px var(--line) inset;cursor:pointer}
+.btn.pri{background:var(--acc);color:#fff;box-shadow:none}.btn.go{background:var(--ok);color:#fff;box-shadow:none}.btn.warn{color:var(--warn)}
+.btn:disabled{opacity:.45;cursor:default}
+input[type=text],select{font:inherit;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--fg);min-width:0}
+.head{display:flex;gap:16px;align-items:center}
+.head svg{width:84px;flex:none;filter:drop-shadow(0 3px 6px rgba(0,0,0,.18))}
+.name{display:flex;align-items:center;gap:6px;min-width:0}.name h1{margin:0;word-break:break-word}
+.name input{font-size:24px;font-weight:700;padding:2px 8px;width:100%;max-width:320px;box-sizing:border-box}
+.pen{border:0;background:none;color:var(--mute);padding:6px;border-radius:8px;cursor:pointer;flex:none;line-height:0}.pen:hover{color:var(--fg);background:var(--chip)}
+.pen svg{width:18px;height:18px;filter:none}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;background:var(--chip);font-size:12px;margin:2px 4px 2px 0}
+.chip.ok{color:var(--ok)}.chip.bad{color:var(--warn)}
+.bar{height:6px;border-radius:3px;background:var(--chip);overflow:hidden;margin:6px 0}.bar i{display:block;height:100%;background:var(--acc);width:0}
+.list{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 8px;margin:6px 0}
+.list label{display:flex;gap:8px;align-items:baseline;padding:3px 0;font-size:14px}
+code{font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--chip);padding:6px 8px;border-radius:8px;display:block;overflow-x:auto;white-space:pre}
+.small{font-size:13px}
+.okc{color:var(--ok)}.info{color:var(--acc);margin:8px 0}
+.modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal .sheet{background:var(--card);color:var(--fg);border-radius:14px;max-width:560px;width:100%;max-height:80dvh;display:flex;flex-direction:column;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+.modal pre{overflow:auto;margin:8px 0;font:13px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+</style></head><body><main id="app"></main><input type="file" id="files" multiple hidden accept="audio/*,.mp3,.m4a,.m4b,.aac,.wav,.aif,.aiff,.flac"><input type="file" id="fwin" hidden>
+<script>
+"use strict";
+const $=id=>document.getElementById(id),app=$('app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const U=encodeURIComponent;
+// where the pages are: on the server /cards and /cards/NAME, in the offline app (window.OFFLINE_CARDS) cards.html and cards.html?card=NAME
+const OFF=!!window.OFFLINE_CARDS;
+const cardsHref=n=>OFF?'cards.html'+(n==null?'':'?card='+U(n)):'/cards'+(n==null?'':'/'+U(n));
+// offline: moving between the library and a card is no page load (a load starts the card store's Python again), only a redraw
+function nav(href){if(!OFF){location.href=href;return}
+ const q=new URLSearchParams(href.split('?')[1]||'').get('card');NAME=q||'';history.pushState(null,'',href);scrollTo(0,0);refresh()}
+const homeHref=reboot=>OFF?'index.html'+(reboot?'?rebooting=1':''):(reboot?'/?rebooting=1':'/');
+const gbs=n=>n>=1e9?(n/1e9).toFixed(n>=1e10?0:1)+' GB':(n/1e6).toFixed(0)+' MB';
+const approx=n=>{const g=n/1e9;return g>=1?Math.round(g)+' GB':Math.round(n/1e6)+' MB'};   // printed on the card
+async function api(path,opt){const r=await fetch('/api/'+path,opt);let j={};try{j=await r.json()}catch(e){}
+ if(!r.ok||j.error)throw new Error(j.error||('HTTP '+r.status));return j}
+const post=(path,body)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+let S={cards:[]},firmware=[];
+
+// the SD card: a body with its top-right corner cut, gold contacts at the top, the label with the size
+function hue(name){let h=0;for(const c of name)h=(h*31+c.charCodeAt(0))%360;return h}
+function sd(c,big){const h=c?hue(c.name):210,size=c?approx(c.size):'+',body=c?'#2a2c33':'none',stroke=c?'none':'currentColor';
+ const contacts=c?[0,1,2,3,4,5,6,7].map(i=>'<rect x="'+(14+i*9)+'" y="10" width="5.5" height="15" rx="1.2" fill="#d9b44a"/>').join(''):'';
+ return '<svg viewBox="0 0 100 130" aria-hidden="true"><path d="M8 2h66l24 24v96a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6V8a6 6 0 0 1 6-6z" fill="'+body+
+  '" stroke="'+stroke+'" stroke-width="'+(c?0:3)+'" stroke-dasharray="'+(c?'':'7 5')+'"/>'+contacts+
+  (c?'<rect x="10" y="38" width="80" height="80" rx="5" fill="hsl('+h+',55%,52%)"/><rect x="10" y="38" width="80" height="12" rx="5" fill="hsla(0,0%,100%,.18)"/>'+
+   '<text x="50" y="90" text-anchor="middle" font-family="-apple-system,system-ui,sans-serif" font-weight="800" font-size="'+(size.length>5?17:21)+'" fill="#fff">'+esc(size)+'</text>'
+   :'<text x="50" y="82" text-anchor="middle" font-family="-apple-system,system-ui,sans-serif" font-size="44" fill="currentColor">+</text>')+'</svg>'}
+
+function fwName(c){const s=c.scan,f=s&&s.firmware;if(!s)return 'not scanned';if(!f||!f.present)return 'no firmware';
+ // Apple's own firmware: named as the firmware list names it ("Apple 1.5"), found by its catalog file
+ const cat=f.catalog_file&&firmware.find(x=>x.id==='catalog:'+f.catalog_file);if(cat)return cat.label.replace(/ \(.*$/,'');
+ if(f.build&&f.build.startsWith('stock '))return 'Apple '+f.build.slice(6);
+ if(f.build==='openpod 1.6 release')return 'iPod 1.6 (openpod)';
+ if(f.version_word_means)return 'custom, '+f.version_word_means+'-based';
+ return 'custom firmware'}
+
+// ---------------------------------------------------------------- the library
+function library(){
+ const tiles=S.cards.map(c=>{const busy=c.op&&c.op.state==='running';
+  return '<a class="tile'+(c.booted?' boot':'')+(busy?' busy':'')+'" href="'+cardsHref(c.name)+'">'+sd(c)+
+   '<div class="nm">'+esc(c.name)+'</div><div class="fw">'+esc(fwName(c))+(c.readonly?' · read-only':'')+'</div>'+
+   (c.booted?'<div class="tag">in the iPod</div>':busy?'<div class="fw">'+esc(c.op.op)+'…</div>':'')+'</a>'}).join('');
+ app.innerHTML='<div class="crumbs"><a href="'+homeHref()+'" data-home>iPod</a><span>›</span><b>Cards</b></div><h1>Card library</h1>'+
+  '<div class="err" id="err"></div><div class="grid">'+tiles+
+  '<div class="tile" id="newtile">'+sd(null)+'<div class="nm">New card</div><div class="fw">blank, any size</div></div></div>'+
+  '<div class="box" id="newbox" hidden><h2>New card</h2><div class="row"><input type="text" id="new-name" placeholder="name" maxlength="64" style="flex:1">'+
+  '<select id="new-size"><option value="1">1 GB</option><option value="4">4 GB</option><option value="8">8 GB</option><option value="10" selected>10 GB</option>'+
+  '<option value="20">20 GB</option><option value="32">32 GB</option><option value="64">64 GB</option><option value="128">128 GB</option><option value="256">256 GB</option></select>'+
+  '<button class="btn pri" id="new-go">Create</button></div><div class="mute">A blank card image; it takes no disk space until written. Then open it to flash firmware. '+
+  'Past 128 GB needs large-disk firmware.</div></div>'+
+  '<p class="mute">The card with the green box is the one the iPod boots. Open a card to set it up or to boot it.</p>';
+ $('newtile').onclick=()=>{$('newbox').hidden=false;$('new-name').focus()};
+ $('new-go').onclick=async()=>{const name=$('new-name').value.trim();if(!name)return;
+  try{await post('cards/'+U(name)+'/create',{size:Number($('new-size').value)*1e9});nav(cardsHref(name))}catch(e){$('err').textContent=e.message}};
+}
+
+// ---------------------------------------------------------------- card setup
+let NAME=null,openNow={},keepVals={},editing=false;
+function scanChips(c){const s=c.scan;if(!s)return '<span class="mute">not scanned yet</span>';
+ const ch=[];ch.push(s.ipod_compatible?'<span class="chip ok">iPod card</span>':'<span class="chip bad">not an iPod card yet</span>');
+ const d=s.itunesdb||{};
+ if(d.state==='ok')ch.push('<span class="chip">'+d.tracks+' songs · '+d.artists+' artists · '+d.albums+' albums</span>');
+ else if(d.state)ch.push('<span class="chip bad">iTunesDB '+esc(d.state)+'</span>');
+ const fs=s.filesystem;if(fs&&fs.total_bytes)ch.push('<span class="chip">'+gbs(fs.free_bytes)+' free of '+gbs(fs.total_bytes)+'</span>');
+ if(s.past_128gib)ch.push('<span class="chip bad">past 128 GiB: stock 1.x cannot read it all</span>');
+ let h=ch.join('');if(s.problems&&s.problems.length)h+='<div class="mute">'+s.problems.map(esc).join('; ')+'</div>';
+ const f=s.firmware;if(f&&f.present&&f.osos)h+='<div class="mute small">firmware '+esc(fwName(c))+' · osos '+esc(f.osos.sha256.slice(0,16))+'</div>';
+ if(!c.scan_fresh)h+='<div class="mute small">(last scan; the card is in use or has changed)</div>';
+ return h}
+function opLine(c){const o=c.op;if(!o)return '';
+ if(o.state==='running'){const pct=o.total?Math.round(100*o.done/o.total):0;
+  return '<div class="box"><div class="mute">'+esc(o.op)+(o.stage?': '+esc(o.stage):'')+(o.total?' '+o.done+'/'+o.total:'')+(o.item?' · '+esc(o.item):'')+
+   ' <button class="btn small" data-act="cancel">Cancel</button></div><div class="bar"><i style="width:'+pct+'%"></i></div></div>'}
+ if(o.state==='error')return '<div class="err">'+esc(o.op)+' failed: '+esc(o.error)+'</div>';
+ if(o.state==='done'&&o.op==='plan'&&o.result)return planView(o.result);
+ if(o.state==='done')return '<div class="mute">'+esc(o.op)+' done'+(o.result&&o.result.added?': '+o.result.added.length+' added':'')+
+  (o.result&&o.result.removed?': '+o.result.removed.length+' removed':'')+'</div>';
+ return ''}
+function planView(p){const n=(p.new||[]).length;
+ let h='<div class="box"><b>'+(!n?'Nothing new to add':p.fits_all?'All '+n+' new songs fit':p.fits+' of '+n+' new songs fit')+'</b>';
+ if((p.duplicates||[]).length)h+='<div class="mute">'+p.duplicates.length+' already on the card</div>';
+ if((p.unreadable||[]).length)h+='<div class="mute">'+p.unreadable.length+' unreadable (skipped)</div>';
+ if(p.free_bytes!=null)h+='<div class="mute">'+gbs(p.batch_bytes)+' to copy, '+gbs(p.free_bytes)+' free</div>';
+ (p.warnings||[]).forEach(w=>h+='<div class="mute">'+esc(w)+'</div>');
+ if(n)h+='<div class="row"><button class="btn pri" data-act="add" data-full="'+(p.fits_all?'stop':'fit')+'">Add '+(p.fits_all?n:p.fits)+' songs</button></div>';
+ return h+'</div>'}
+
+// what a card needs before it can hold firmware and music: the iPod layout (partitions) and a FAT32 music partition
+function needs(c){const s=c.scan;if(!s)return '';
+ const fs=s.filesystem,fat=!!(fs&&fs.type==='FAT32');
+ if(!s.layout_ok&&!fat)return 'This card needs partitioning and formatting: it has '+(s.partition_table?'no iPod partition layout':'no partition table')+' and no music partition.';
+ if(!s.layout_ok)return 'This card needs partitioning: its partitions are not an iPod’s layout.';
+ if(!fat)return 'This card needs formatting: its music partition has no FAT32 file system.';
+ return ''}
+function setup(){if(editing)return;const c=S.cards.find(x=>x.name===NAME);
+ if(!c){app.innerHTML='<div class="crumbs"><a href="'+homeHref()+'" data-home>iPod</a><span>›</span><a href="'+cardsHref()+'">Cards</a></div><h1>No card named “'+esc(NAME)+'”</h1>';return}
+ // keep what the person typed and which lists were open across a redraw
+ document.querySelectorAll('[data-keep]').forEach(i=>keepVals[i.dataset.keep]=i.type==='checkbox'?i.checked:i.value);
+ const kept={};['tracks','music','burnout'].forEach(k=>{const el=$(k);if(el)kept[k]=el});   // the song list and the host picker keep their ticks across a redraw
+  const busy=c.op&&c.op.state==='running',b=c.booted,dis=busy||b?' disabled':'',off=busy?' disabled':'';
+ const need=needs(c),ready=!!c.scan&&!need;
+ // the dropdown starts on the firmware the card HAS (from the scan's catalog_file), marked "installed"; on a card with firmware not in the list it says so;
+ // a card with none starts on the default. Whatever the person picks is kept across redraws (keepVals).
+ const fwi=c.scan&&c.scan.firmware,instId=fwi&&fwi.present&&fwi.catalog_file?'catalog:'+fwi.catalog_file:null,instKnown=firmware.some(f=>f.id===instId);
+ const fwOpts=(!instKnown&&fwi&&fwi.present?'<option value="" selected>Installed: '+esc(fwi.build||'firmware not in this list')+' (not in this list)</option>':'')+
+  firmware.map(f=>'<option value="'+esc(f.id)+'"'+((instKnown?f.id===instId:!(fwi&&fwi.present)&&f.default)?' selected':'')+'>'+esc(f.label)+(f.id===instId?' — installed':'')+'</option>').join('');
+ let h='<div class="crumbs"><a href="'+homeHref()+'" data-home>iPod</a><span>›</span><a href="'+cardsHref()+'">Cards</a><span>›</span><b>'+esc(c.name)+'</b></div>';
+ h+=b?'<div class="box" style="box-shadow:0 0 0 3px var(--ok) inset"><b>This is the current boot card for the iPod.</b>'+
+      (S.booted_keep===false?'<div class="mute">Its changes are discarded when the session ends.</div>':'')+'</div>'
+    :'<div class="box"><div class="row" style="margin-top:0"><button class="btn go" data-act="boot" data-keep="1"'+(busy?' disabled':'')+
+      '>Make this the boot card</button></div><div class="mute">Make this the boot card: the iPod restarts on it, running the firmware on it, '+
+      (c.readonly?'and the current recording ends. This disk is read-only: nothing the iPod does is kept.':'and the current recording ends. The card then changes as a real one would.')+'</div></div>';
+ h+='<div class="head">'+sd(c)+'<div style="min-width:0"><div class="name" id="name"><h1>'+esc(c.name)+'</h1>'+
+   (busy||c.readonly?'':'<button class="pen" id="pen" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
+   '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>')+'</div><div class="mute">'+esc(fwName(c))+' · '+gbs(c.size)+'</div></div></div>';
+ h+='<div class="err" id="err"></div>'+opLine(c);
+ h+='<div class="box"><h2>Card Details</h2>'+scanChips(c)+'<div class="row"><button class="btn" data-act="scan"'+(busy?' disabled':'')+'>Rescan</button></div></div>';
+ if(c.readonly)h+='<div class="box"><h2>Read-only</h2><div>This is the built-in card the iPod boots when no other card is chosen. '+
+   'It cannot be changed. Duplicate it to get a card you can add songs to.</div></div>';
+ if(need&&!c.readonly)h+='<div class="box"><h2>Format</h2><div>'+esc(need)+'</div>'+
+   '<div class="row"><button class="btn pri" data-act="partition"'+off+'>Partition and format</button></div>'+
+   '<div class="mute small">This lays out the whole card: a firmware partition (holding Apple’s 1.5 until you change it under Firmware) '+
+   'and a music partition with an empty library. Anything on the card now is erased.</div></div>';
+ if(ready&&!c.readonly){
+  h+='<div class="box"><h2>Firmware</h2><div class="row"><select data-keep="fw" style="flex:1;min-width:220px">'+fwOpts+'</select>'+
+    '<button class="btn pri" data-act="flash"'+off+'>Write firmware</button></div>'+
+    '<div class="mute small">Replaces only the firmware; the music and the library stay as they are.</div>'+
+    (OFF?'<div class="row"><button class="btn" data-act="fwfile"'+off+'>Add a firmware file…</button></div>'+
+     '<div class="mute small">Your own firmware: an .ipsw, or a .zip that holds one. It is kept in this app and listed above. '+
+     'Apple’s 1.5 is <a href="https://secure-appldnld.apple.com/iPod/SBML/osx/bundles/061-2686.20060912.ipTsW/iPod_1.1.5.ipsw" target="_blank" rel="noopener">iPod_1.1.5.ipsw</a>: '+
+     'download it, then choose it from Files.</div>':'')+
+    '</div>';
+  const db=(c.scan&&c.scan.itunesdb)||{},have=!UP.sent&&(c.uploads||[]).length+hostSel.length>0;
+  h+='<div class="box"><h2>iPod Library</h2><div id="tracks"></div><div class="row"><button class="btn" data-act="tracks">List songs</button>'+
+    '<button class="btn warn" data-act="remove"'+off+'>Remove selected</button></div>'+
+    '<h2 style="margin-top:14px">Add songs</h2>'+
+    '<div class="row"><button class="btn" data-act="phone"'+off+'>Add from this phone</button>'+
+    '<button class="btn" data-act="hostpick"'+(off||(S.music_root?'':' disabled'))+'>Add from host computer</button></div>'+
+    (S.music_root?'':'<div class="mute small">The host computer’s music folder is not set (the web app’s --music-root).</div>')+
+    '<div id="hostbox"'+(hostOpen?'':' hidden')+'><div id="music"></div></div>'+
+    '<div class="mute" id="upsum" style="margin:8px 0">'+upSummary(c)+'</div>'+
+    '<div class="row"><button class="btn pri" data-act="addsongs"'+(!have||UP.busy||busy?' disabled':'')+'>Import Songs To iPod</button>'+
+    (have?'<button class="btn small" data-act="clearup">Clear</button>':'')+'</div>'+
+    '<div class="info" id="info"></div>'+
+    '<div class="row" style="margin-top:14px">'+(db.state==='absent'?'<button class="btn" data-act="init"'+off+'>Set up an empty library</button>':'')+
+    '<button class="btn" data-act="rebuild"'+off+'>Rebuild library from card files</button></div></div>';
+ }
+ h+='<div class="box"><h2>Card Management</h2><div class="row"><input type="text" data-keep="newname" placeholder="name of the copy" maxlength="64">'+
+   '<button class="btn" data-act="duplicate"'+(busy?' disabled':'')+'>Duplicate</button></div>'+
+   (S.can_resize&&ready&&!c.readonly?'<div class="row"><select data-keep="resize">'+[1,2,4,8,10,16,20,32,64,128,256].map(g=>'<option value="'+g+'"'+(Math.abs(g*1e9-c.size)<5e8?' selected':'')+'>'+g+' GB</option>').join('')+'</select>'+
+    '<button class="btn" data-act="resize"'+off+'>Resize card</button></div><div class="mute small">Makes the card bigger, or smaller as long as its music still fits. Songs and playlists stay as they are.</div>':'')+
+   '<div class="row">'+(ready&&!c.readonly?'<button class="btn warn" data-act="format"'+off+'>Erase all music</button>':'')+
+   (S.can_burn?'<a class="btn" href="#burn">Burn to a flash card…</a>':'<button class="btn" data-act="burn">Burn to a flash card…</button>')+(c.readonly?'':'<button class="btn warn" data-act="delete"'+dis+'>Delete card</button>')+'</div><div id="burnout"></div></div>';
+ app.innerHTML=h;
+ document.querySelectorAll('[data-keep]').forEach(i=>{const v=keepVals[i.dataset.keep];if(v==null)return;if(i.type==='checkbox'){if(!i.disabled)i.checked=v}else i.value=v});
+ Object.keys(kept).forEach(k=>{const n=$(k);if(n)n.replaceWith(kept[k])});
+}
+
+// what the person has chosen to add: files uploaded from this phone (the server's count is the truth), the ones that
+// failed (this session only), and files or folders chosen on the host computer
+let UP={sent:false,busy:false,total:0,done:0,fails:[]},hostSel=[],hostOpen=false,retryUntil=0,pollUntil=0;
+function upSummary(c){
+ if(UP.busy)return 'Uploading '+UP.done+' of '+UP.total+'…';
+ const ok=(c.uploads||[]).length,bad=UP.fails.length,p=[];
+ if(ok)p.push('<span class="okc">✓ '+ok+' uploaded</span>');
+ if(bad)p.push('<a href="#" data-showfails style="color:var(--warn)">'+bad+' failed</a>');
+ if(hostSel.length)p.push(hostSel.length+' chosen on the host computer');
+ return p.join(' · ')||'Nothing chosen yet.'}
+function sumNow(){const el=$('upsum'),c=S.cards.find(x=>x.name===NAME);if(el&&c)el.innerHTML=upSummary(c)}
+async function uploadFiles(files){
+ files=[...files];if(!files.length)return;
+ UP.sent=false;UP.busy=true;UP.total=files.length;UP.done=0;UP.fails=[];sumNow();
+ for(const f of files){
+  try{await api('cards/'+U(NAME)+'/upload?file='+U(f.name),{method:'PUT',body:f})}
+  catch(e){UP.fails.push({name:f.name,why:e.message})}
+  UP.done++;sumNow()}
+ UP.busy=false;await refresh()}
+function showList(title,lines){
+ const m=document.createElement('div');m.className='modal';
+ m.innerHTML='<div class="sheet"><b>'+esc(title)+'</b><pre>'+esc(lines.join('\n'))+'</pre><div class="row" style="margin:0"><button class="btn" data-modal-close>Close</button></div></div>';
+ m.addEventListener('click',e=>{if(e.target===m||e.target.closest('[data-modal-close]'))m.remove()});document.body.appendChild(m)}
+// offline: a firmware file from the phone (an .ipsw, or a .zip holding one) goes to the card store, which lists it with the others
+$('fwin').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const er=$('err');if(er)er.textContent='';
+ try{await api('firmware?file='+U(f.name),{method:'PUT',body:f});await refresh();
+  const sel=document.querySelector('select[data-keep=fw]');if(sel){const o=[...sel.options].find(x=>x.value.startsWith('file:')&&x.textContent.indexOf(f.name.replace(/\.zip$/i,'').slice(0,12))>=0);if(o)sel.value=o.value}}
+ catch(x){if(er){er.textContent=x.message;scrollTo(0,0)}}});
+const OPNAME={resize:'resize',init:'set up an empty library on',rebuild:'rebuild the library of',format:'erase the music on',partition:'partition',flash:'write firmware to',add:'add songs to',remove:'remove songs from'};
+// An operation on a card. The iPod holds the card it is running, so for that one the app restarts the iPod without it,
+// does the operation, and puts the iPod back on the card when it has worked.
+async function runOp(op,args){
+ const c=S.cards.find(x=>x.name===NAME);
+ if(c&&c.booted){
+  if(!confirm('The iPod is running '+NAME+'. To '+(OPNAME[op]||op)+' it, the iPod restarts without the card, the change is made, and the iPod goes back onto the card when it is done. Go ahead?'))return false;
+  await post('cards/'+U(NAME)+'/then',{op,args});retryUntil=Date.now()+180000;
+  const i=$('info');if(i)i.textContent='The iPod is restarting without this card; the change starts in a moment.';return true}
+ await post('cards/'+U(NAME)+'/'+op,args);return true}
+async function waitOp(name){
+ for(let k=0;k<600;k++){await new Promise(r=>setTimeout(r,500));S=await api('cards');
+  const o=(S.cards.find(x=>x.name===NAME)||{}).op;if(o&&o.op===name&&o.state!=='running')return o}
+ return null}
+const val=k=>{const i=document.querySelector('[data-keep="'+k+'"]');return i?(i.type==='checkbox'?i.checked:i.value):null};
+let lastPlan=null;
+async function act(t){const a=t.dataset.act,n=U(NAME);
+ if(a==='cancel')return post('cards/'+n+'/cancel');
+ if(a==='scan')return post('cards/'+n+'/scan',{ipod_name:'iPod'});
+ if(a==='init'||a==='rebuild')return runOp(a,{ipod_name:'iPod'});
+ if(a==='format'){if(!confirm('Erase all the music on '+NAME+'?'))return;return runOp('format',{ipod_name:'iPod'})}
+ if(a==='resize'){const g=Number(val('resize'));if(!g)return;if(!confirm('Resize '+NAME+' to '+g+' GB?'))return;return runOp('resize',{size:g*1e9})}
+ if(a==='partition'){if(!confirm('Partition and format '+NAME+'? Anything on it is erased.'))return;return runOp('partition',{})}
+ if(a==='boot'){if(!confirm('Restart the iPod on '+NAME+(t.dataset.keep==='1'?'':' (changes discarded)')+'? This ends the current recording.'))return;
+  await post('boot',{card:NAME,keep:t.dataset.keep==='1'});home(true);return}
+ if(a==='unboot'){if(!confirm('Restart the iPod on the built-in card?'))return;await post('boot',{card:null});home(true);return}
+ if(a==='flash'){if(!(document.querySelector('[data-keep=fw]')||{}).value){$('err').textContent='Choose a firmware to write.';return}if(!confirm('Write this firmware to '+NAME+'? Only the firmware changes.'))return;
+  return runOp('flash',{firmware:val('fw')})}
+ if(a==='fwfile'){$('fwin').click();return}
+ if(a==='tracks'){const r=await api('cards/'+n+'/tracks'),by={};
+  (r.tracks||[]).forEach(x=>{const k=(x.artist||'Unknown artist')+' — '+(x.album||'Unknown album');(by[k]=by[k]||[]).push(x)});
+  $('tracks').innerHTML=(r.tracks||[]).length?'<div class="list">'+Object.keys(by).sort().map(k=>'<div class="mute small" style="margin-top:6px">'+esc(k)+'</div>'+
+   by[k].map(x=>'<label><input type="checkbox" value="'+x.id+'">'+esc(x.track_nr?x.track_nr+'. ':'')+esc(x.title)+' <span class="mute small">'+
+   Math.round(x.length_ms/1000)+' s</span></label>').join('')).join('')+'</div>':'<div class="mute">No songs on this card.</div>';return}
+ if(a==='remove'){const ids=[...document.querySelectorAll('#tracks input:checked')].map(i=>Number(i.value));if(!ids.length)return;
+  if(!confirm('Remove '+ids.length+' song(s) from '+NAME+'?'))return;await runOp('remove',{ids});$('tracks').innerHTML='';keepVals._tracks='';return}
+ if(a==='phone'){$('files').click();return}
+ if(a==='hostpick'){hostOpen=!hostOpen;$('hostbox').hidden=!hostOpen;if(hostOpen&&!$('music').innerHTML)await browse('');return}
+ if(a==='hostuse'){UP.sent=false;hostSel=[...document.querySelectorAll('#music input:checked')].map(i=>i.value);hostOpen=false;$('hostbox').hidden=true;sumNow();return}
+ if(a==='clearup'){hostSel=[];UP.fails=[];return post('cards/'+n+'/clear-uploads')}
+ if(a==='addsongs'){
+  const body={kind:'both',paths:hostSel};lastPlan=body;
+  const c=S.cards.find(x=>x.name===NAME);
+  if(c&&c.booted){if(await runOp('add',Object.assign({full:'fit'},body))){hostSel=[];UP.fails=[];UP.sent=true}return}
+  await post('cards/'+n+'/plan',body);const r=(await waitOp('plan')||{}).result;      // what fits: all of it goes in at once, anything else is asked
+  if(r&&r.fits_all&&(r.new||[]).length&&!(r.unreadable||[]).length){await post('cards/'+n+'/add',Object.assign({full:'stop'},body));hostSel=[];UP.fails=[];UP.sent=true}
+  return}
+ if(a==='add'){await runOp('add',Object.assign({full:t.dataset.full},lastPlan||{kind:'both',paths:hostSel}));hostSel=[];UP.sent=true;return}
+ if(a==='browse')return browse(t.dataset.dir||'');
+ if(a==='duplicate'){const to=(val('newname')||'').trim();if(!to)return;await post('cards/'+n+'/duplicate',{to});
+  const o=await waitOp('duplicate');if(o&&o.state==='done'){nav(cardsHref(to));return}             // the copy is made: open it
+  if(o&&o.error){const er=$('err');if(er)er.textContent=o.error}return}
+ if(a==='delete'){const c=prompt('Type the card’s name to delete it for good:');if(c!==NAME)return;
+  await post('cards/'+n+'/delete',{confirm:c});nav(cardsHref());return}
+ if(a==='burn'){const r=await api('cards/'+n+'/burn');$('burnout').innerHTML='<div class="mute small">Find the flash card:</div><code>'+esc(r.find)+
+  '</code><div class="mute small">Then, replacing /dev/sdX:</div><code>'+esc(r.burn)+'</code><div class="mute small">'+esc(r.note)+'</div>';return}
+}
+async function browse(rel){const r=await api('music?path='+U(rel)),up=rel.includes('/')?rel.replace(/\/[^/]*$/,''):'';
+ $('music').innerHTML='<div class="list"><div class="mute small">'+esc('/'+(r.path||''))+(rel?' <button class="btn small" data-act="browse" data-dir="'+esc(up)+'">Up</button>':'')+'</div>'+
+  r.dirs.map(x=>{const p=(rel?rel+'/':'')+x;return '<label><input type="checkbox" value="'+esc(p)+'">📁 <a href="#" data-open="'+esc(p)+'">'+esc(x)+'</a></label>'}).join('')+
+  r.files.map(x=>'<label><input type="checkbox" value="'+esc((rel?rel+'/':'')+x)+'">'+esc(x)+'</label>').join('')+'</div>'+
+  '<div class="row"><button class="btn pri" data-act="hostuse">Use selected</button></div>';keepVals._music=$('music').innerHTML}
+
+// rename in place: the pencil turns the name into a text box; leaving the box (or Enter) renames, Escape keeps the old name
+function editName(){const box=$('name');if(!box||editing)return;editing=true;
+ box.innerHTML='<input type="text" id="namein" maxlength="64" aria-label="Card name">';const i=$('namein');i.value=NAME;i.focus();i.select();
+ let done=false;
+ i.addEventListener('keydown',e=>{if(e.key==='Enter')i.blur();else if(e.key==='Escape'){i.value=NAME;i.blur()}});
+ i.addEventListener('blur',async()=>{if(done)return;done=true;const to=i.value.trim();
+  if(!to||to===NAME){editing=false;setup();return}
+  i.disabled=true;let msg='';
+  try{if(S.cards.some(x=>x.name===to))throw new Error('There is already a card named “'+to+'”.');await post('cards/'+U(NAME)+'/rename',{to});
+   for(let k=0;k<40;k++){S=await api('cards');const st=(S.cards.find(x=>x.name===NAME)||{}).op;
+    if(st&&st.op==='rename'&&st.state==='error')throw new Error(st.error);
+    if(!st&&S.cards.some(x=>x.name===to)){history.replaceState(null,'',cardsHref(to));NAME=to;break}
+    await new Promise(r=>setTimeout(r,150))}}
+  catch(e){msg=e.message}
+  editing=false;setup();if(msg&&$('err'))$('err').textContent=msg})}
+
+document.addEventListener('click',async ev=>{
+ if(ev.target.closest('#pen')){editName();return}
+ const o=ev.target.closest('[data-open]');if(o){ev.preventDefault();try{await browse(o.dataset.open)}catch(e){$('err').textContent=e.message}return}
+ const f=ev.target.closest('[data-showfails]');if(f){ev.preventDefault();showList(UP.fails.length+' file(s) did not upload',UP.fails.map(x=>x.name+' — '+x.why));return}
+ const t=ev.target.closest('button[data-act]');if(!t)return;
+ try{await act(t);refresh()}catch(e){const er=$('err');if(er){er.textContent=e.message;window.scrollTo(0,0)}}});
+
+$('files').addEventListener('change',e=>{const l=[...e.target.files];e.target.value='';uploadFiles(l)});
+// ---------------------------------------------------------------- routing and refresh
+// Opened over the iPod page (in a frame, so that page keeps playing), 'back to the iPod' closes the frame instead of loading the page inside it
+// no double-tap or pinch zoom: touch-action covers the double tap on iOS 13+; the rest (a double tap on something inert, a pinch) is stopped here
+(function(){let t=0;
+ addEventListener('touchend',e=>{const n=Date.now();if(n-t<350&&!(e.target.closest&&e.target.closest('button,a,input,select,textarea,label')))e.preventDefault();t=n},{passive:false,capture:true});
+ addEventListener('dblclick',e=>e.preventDefault(),true);
+ for(const g of ['gesturestart','gesturechange','gestureend'])addEventListener(g,e=>e.preventDefault())})();
+const EMB=window.top!==window;
+function home(reboot){if(EMB)parent.postMessage({t:reboot?'rebooting':'cards-close'},location.origin);else location.href=homeHref(reboot)}
+document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a[data-home]');if(a&&EMB){e.preventDefault();home(false)}});
+if(OFF){const c=new URLSearchParams(location.search).get('card');if(c)NAME=c
+ addEventListener('popstate',()=>{NAME=new URLSearchParams(location.search).get('card')||'';refresh()})
+ document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a[href^="cards.html"]');if(a&&!e.defaultPrevented&&!e.metaKey){e.preventDefault();nav(a.getAttribute('href'))}})}
+else{const path=decodeURIComponent(location.pathname.replace(/\/+$/,''));if(path.startsWith('/cards/'))NAME=path.slice(7)}
+// ---- Burn to a flash card: the removable disks on the computer emupod runs on, one chosen, burned with a progress bar
+let BURN={sel:null,disks:null,test:false,mine:false,status:null},burnPoll=null;
+async function loadDisks(){try{const r=await api('burn/disks?card='+U(NAME));BURN.disks=r.disks||[];BURN.test=!!r.test;
+  if(BURN.sel&&!BURN.disks.some(d=>d.path===BURN.sel&&d.ok))BURN.sel=null;burnPage()}catch(e){BURN.disks=[];BURN.error=e.message;burnPage()}}
+function burnPage(){if(location.hash!=='#burn')return;const c=S.cards.find(x=>x.name===NAME);if(!c){setup();return}
+ const st=BURN.status,running=st&&st.state==='running',done=BURN.mine&&st&&st.state==='done';
+ let h='<div class="crumbs"><a href="'+homeHref()+'" data-home>iPod</a><span>›</span><a href="'+cardsHref()+'">Cards</a><span>›</span><a href="#">'+esc(c.name)+'</a><span>›</span><b>Burn</b></div>';
+ h+='<h1>Burn “'+esc(c.name)+'” to a flash card</h1><div class="mute">Put a flash card (SD or CompactFlash) in a USB card reader on the computer emupod runs on, choose it below, and burn. '+
+   'Everything on the card you choose is erased and replaced with this card ('+gbs(c.size)+').'+(BURN.test?' <b>Test mode: the disks listed are files, not real cards.</b>':'')+'</div>';
+ if(done)h+='<div class="box burned">Card burned successfully. Remove card now.</div>';
+ h+='<div class="box"><table class="disks"><thead><tr><th></th><th>Device</th><th>Size</th><th>On it now</th></tr></thead><tbody>';
+ if(!BURN.disks)h+='<tr><td colspan="4" class="mute">Looking for cards…</td></tr>';
+ else if(!BURN.disks.length)h+='<tr><td colspan="4" class="mute">No flash card found. Put the card in a USB card reader on that computer, then Refresh.</td></tr>';
+ else for(const d of BURN.disks){const sel=BURN.sel===d.path;
+  h+='<tr class="'+(d.ok?'pick':'no')+(sel?' sel':'')+'" data-disk="'+esc(d.path)+'"><td><input type="radio" name="disk"'+(sel?' checked':'')+(d.ok&&!running&&!done?'':' disabled')+'></td>'+
+   '<td><b>'+esc(d.label)+'</b><div class="mute small">'+esc(d.path)+'</div>'+(d.problem?'<div class="why">'+esc(d.problem)+'</div>':'')+'</td><td>'+gbs(d.size)+'</td><td>'+esc(d.contents)+'</td></tr>'}
+ h+='</tbody></table><div class="row"><button class="btn pri" id="burngo"'+(BURN.sel&&!running&&!done?'':' disabled')+'>Burn to Card</button>'+
+   '<button class="btn" id="burnrefresh"'+(running?' disabled':'')+'>Refresh list</button></div>';
+ if(running||(st&&st.state==='error'&&BURN.mine)){
+  const pct=st.total?Math.round(100*st.done/st.total):0,
+   what={prepare:'Getting ready…',unmount:'Unmounting the card…','partition and format':'Partitioning and formatting the card, writing its firmware…',copy:'Copying the songs and files',check:'Checking the songs on the card…',eject:'Ejecting…'}[st.stage]||st.stage,
+   bar={prepare:0,unmount:2,'partition and format':6,copy:8+0.88*pct,check:97,eject:100}[st.stage]??0;
+  if(running)h+='<progress class="burnbar" max="100" value="'+bar+'"></progress><div class="mute small">'+esc(what)+(st.stage==='copy'?' · '+pct+'%':'')+'</div>';
+  else h+='<div class="err">The burn failed: '+esc(st.error||'')+'</div>'}
+ h+='<div class="err" id="err">'+esc(BURN.error||'')+'</div></div>';
+ app.innerHTML=h;
+ document.querySelectorAll('tr.pick').forEach(tr=>tr.onclick=()=>{if(running||done)return;BURN.sel=tr.dataset.disk;burnPage()});
+ $('burnrefresh').onclick=()=>{BURN.error='';loadDisks()};
+ $('burngo').onclick=async()=>{const d=(BURN.disks||[]).find(x=>x.path===BURN.sel);if(!d)return;
+  if(!confirm('Erase everything on '+d.label+' ('+gbs(d.size)+', '+d.path+') and burn “'+c.name+'” onto it?\n\nThis cannot be undone.'))return;
+  try{BURN.error='';BURN.status=await api('burn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({card:NAME,device:d.path})});BURN.mine=true;burnPage();watchBurn()}
+  catch(e){BURN.error=e.message;burnPage()}}}
+function watchBurn(){clearInterval(burnPoll);burnPoll=setInterval(async()=>{try{BURN.status=await api('burn/status')}catch(e){return}
+  if(BURN.status.state!=='running'){clearInterval(burnPoll);loadDisks()}burnPage()},500)}
+async function refresh(){try{S=await api('cards');firmware=S.firmware||[];
+  if(S.cards.some(c=>c.op&&c.op.state==='running'))pollUntil=Date.now()+10000;
+  if(NAME&&location.hash==='#burn'&&S.can_burn)burnPage();else if(NAME)setup();else library()}catch(e){if(S.cards.length){const er=$('err');if(er)er.textContent='The app is restarting… '+e.message}else app.innerHTML='<div class="crumbs"><a href="'+homeHref()+'" data-home>iPod</a></div><div class="err">'+esc(e.message)+'</div>'}}
+addEventListener('hashchange',()=>{BURN={sel:null,disks:null,test:false,mine:false,status:null};refresh();if(location.hash==='#burn')loadDisks()});
+if(location.hash==='#burn')loadDisks();
+refresh();
+// keep asking for a few seconds after an operation ends until the card's details are read again (a card whose scan is stale)
+setInterval(()=>{if(S.cards.some(c=>c.op&&c.op.state==='running')||Date.now()<retryUntil||(Date.now()<pollUntil&&S.cards.some(c=>c.op&&!c.scan_fresh&&!c.booted)))refresh()},1000);
+</script></body></html>

@@ -1,0 +1,33 @@
+# Publishes site/ (the demo and the install page) with install.sh beside it to GitHub Pages. Pages must be turned on for the repository
+# (Settings > Pages > Source: GitHub Actions) and the domain emupod.com pointed at it. NOT YET RUN.
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "installer/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp installer/install.sh site/install.sh && echo emupod.com > site/CNAME
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,13 @@
+[package]
+name = "emupod-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "The pp5002 machine as a WebAssembly module (no wasm-bindgen: a plain C interface, see web/ipod.js)"
+license = "MIT"
+
+[lib]
+name = "emupod_wasm"
+crate-type = ["cdylib"]
+
+[dependencies]
+pp5002 = { path = "../pp5002" }

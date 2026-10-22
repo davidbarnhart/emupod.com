@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#1c1c1e"><meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon.png"><title>emupod cards</title>
+<style>
+:root{--bg:#e9e9ec;--fg:#1c1c1e;--mute:#6c6c72;--card:#fff;--line:#d4d4d8;--acc:#0a66c2;--ok:#2e9e4f;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--fg:#ececee;--mute:#9a9aa0;--card:#1f1f23;--line:#34343a;--acc:#5ea3ff}}
+*{box-sizing:border-box}
+html,body,*{touch-action:manipulation}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px 40px}
+a{color:var(--acc)}h1{font-size:22px;margin:.3em 0}.crumbs{margin:6px 0 12px}.crumbs span{margin:0 6px;color:var(--mute)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}.mute{color:var(--mute);font-size:13px}
+.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}.btn.warn{color:var(--bad)}
+.card{display:flex;justify-content:space-between;align-items:center;gap:8px}.card b{display:block}
+.on{border-color:var(--ok);box-shadow:0 0 0 2px var(--ok) inset}.err{color:var(--bad);margin:8px 0}
+progress{width:100%}
+</style></head><body>
+<div class="crumbs"><a href="index.html">iPod</a><span>›</span><b>Cards</b></div>
+<h1>Card library</h1>
+<div class="err" id="err"></div>
+<div id="list"></div>
+<div class="box"><b>Add a card</b>
+<div class="mute">A card image made on a computer with flashpod (an .img file with Apple’s firmware and your music). It is copied into this app’s own storage; the iPod never changes it: what it writes is forgotten at restart.</div>
+<div class="row"><button class="btn pri" id="pick">Choose a card image…</button><input type="file" id="file" hidden></div>
+<progress id="prog" hidden></progress><div class="mute" id="msg"></div></div>
+<div class="box" id="stockbox" hidden><b>Stock card</b><div class="mute" id="stockinfo"></div><div class="row"><button class="btn" id="stock">Install the stock card</button></div></div>
+<div class="box mute" id="space"></div>
+<script>
+const $=id=>document.getElementById(id);
+// shown over the iPod page in a frame (so its sound keeps going): 'iPod' closes the frame; booting a card tells the page
+// no double-tap or pinch zoom: touch-action covers the double tap on iOS 13+; the rest (a double tap on something inert, a pinch) is stopped here
+(function(){let t=0;
+ addEventListener('touchend',e=>{const n=Date.now();if(n-t<350&&!(e.target.closest&&e.target.closest('button,a,input,select,textarea,label')))e.preventDefault();t=n},{passive:false,capture:true});
+ addEventListener('dblclick',e=>e.preventDefault(),true);
+ for(const g of ['gesturestart','gesturechange','gestureend'])addEventListener(g,e=>e.preventDefault())})();
+const EMB=window.top!==window;
+function home(reboot){if(EMB)parent.postMessage({t:reboot?'rebooting':'cards-close'},location.origin);else location.href=reboot?'index.html?rebooting=1':'index.html'}
+document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a[href="index.html"]');if(a&&EMB){e.preventDefault();home(false)}});
+const store=new Worker('store.js');let seq=0,waits={};
+const ask=m=>new Promise((res,rej)=>{const id=++seq;waits[id]={res,rej};store.postMessage(Object.assign({id},m))});
+store.onmessage=e=>{const m=e.data;if(m.t==='progress'){$('prog').hidden=false;$('prog').max=m.total;$('prog').value=m.done;$('msg').textContent=Math.round(m.done/1e6)+' of '+Math.round(m.total/1e6)+' MB';return}
+ const w=waits[m.id];if(!w)return;delete waits[m.id];m.t==='error'?w.rej(new Error(m.message)):w.res(m)};
+const cur=()=>{try{return localStorage.getItem('emupod.card')}catch(e){return null}};
+const mb=n=>n>=1e9?(n/1e9).toFixed(1)+' GB':Math.round(n/1e6)+' MB';
+async function draw(){
+ try{const {cards}=await ask({t:'list'});
+  $('list').innerHTML=cards.length?cards.map(c=>'<div class="box card'+(c.name===cur()?' on':'')+'"><div><b>'+c.name.replace(/</g,'&lt;')+'</b><span class="mute">'+mb(c.size)+(c.name===cur()?' · in the iPod':'')+'</span></div><div class="row">'+
+   '<button class="btn pri" data-boot="'+encodeURIComponent(c.name)+'">Boot</button><button class="btn warn" data-del="'+encodeURIComponent(c.name)+'">Delete</button></div></div>').join(''):'<div class="box mute">No cards yet.</div>';
+  const e=navigator.storage&&navigator.storage.estimate?await navigator.storage.estimate():null;
+  $('space').textContent=e?'Storage used '+mb(e.usage)+' of about '+mb(e.quota)+' available to this app.':'';
+ }catch(e){$('err').textContent=e.message}}
+$('list').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.boot){try{localStorage.setItem('emupod.card',decodeURIComponent(b.dataset.boot))}catch(x){}home(true)}
+ if(b.dataset.del){const n=decodeURIComponent(b.dataset.del);if(!confirm('Delete card “'+n+'”?'))return;await ask({t:'delete',name:n});if(cur()===n)try{localStorage.removeItem('emupod.card')}catch(x){}draw()}};
+$('pick').onclick=()=>$('file').click();
+$('file').onchange=async()=>{const f=$('file').files[0];if(!f)return;$('err').textContent='';
+ let name=f.name.replace(/\.img$/i,'').replace(/[^A-Za-z0-9 ._-]/g,'').slice(0,60)||'card';
+ try{$('msg').textContent='Copying…';await ask({t:'import',file:f,name});$('prog').hidden=true;$('msg').textContent='Added “'+name+'”.';draw()}
+ catch(e){$('prog').hidden=true;$('err').textContent='Could not add it: '+e.message;$('msg').textContent=''}$('file').value=''};
+fetch('stock.json').then(r=>r.ok?r.json():null).then(st=>{if(!st)return;$('stockbox').hidden=false;$('stockinfo').textContent=st.note||'';
+ $('stock').onclick=async()=>{$('err').textContent='';try{$('msg').textContent='Installing…';await ask({t:'install',url:st.file,name:st.name,size:st.size});$('prog').hidden=true;$('msg').textContent='Installed “'+st.name+'”.';draw()}catch(e){$('prog').hidden=true;$('err').textContent=e.message}}}).catch(()=>{});
+draw();
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+</script></body></html>

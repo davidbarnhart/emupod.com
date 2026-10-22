@@ -1,0 +1,596 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#1c1c1e"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes"><title>emupod</title>
+<link rel="preload" href="chicagoflf.ttf" as="font" type="font/ttf" crossorigin>
+<script>(function(){var m='light';try{m=localStorage.getItem('emupod.theme')==='dark'?'dark':'light'}catch(e){}document.documentElement.classList.add(m)})()</script>
+<style>
+:root{--bg:#e9e9ec;--fg:#1c1c1e;--mute:#6c6c72;--card:#fff;--line:#d4d4d8;--acc:#0a66c2;--rec:#e0352b;
+ --body1:#fbfbfb;--body2:#e4e4e6;--ring:#ececee;--ring2:#dcdcdf;--lbl:#8e8e93;--btn:#fafafa}
+/* Light mode (the default): a white page, the player standing on it under an overhead light. Dark mode: a black page. Session sheet > Appearance. */
+@font-face{font-family:'ChicagoFLF';src:url(chicagoflf.ttf) format('truetype');font-weight:400;font-display:block}
+:root{--ipw:min(calc(100vw - 20px),430px,calc((100dvh - 150px - env(safe-area-inset-top))/1.65))}    /* the player's width: the buttons below line up with it */
+html.light{--bg:#fff}
+html.dark{color-scheme:dark;--bg:#000;--fg:#ececee;--mute:#9a9aa0;--card:#1f1f23;--line:#34343a;--acc:#5ea3ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,*{touch-action:manipulation}
+#wheel{touch-action:none}
+.stat{display:grid;grid-template-columns:1fr auto;grid-template-areas:"l v" "c c";gap:4px 12px;align-items:end;margin:12px 0}
+.stat .sl{grid-area:l;font-size:13px;color:var(--mute);align-self:start}
+.stat canvas{grid-area:c;width:100%;height:58px;background:var(--card);border:1px solid var(--line);border-radius:6px}
+.axis{display:block;width:100%;height:18px;margin:-6px 0 8px;background:transparent!important;border:0!important}
+.stat .sv{grid-area:v;font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px/1.35 -apple-system,system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;min-height:100dvh;touch-action:manipulation;
+ -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}
+.bar{width:calc(var(--ipw) - 20px);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:20px 0 12px;font-size:13px;color:var(--mute)}
+.bar .pill,.sheet .btn,.sheet .pill{font-family:'ChicagoFLF',Charcoal,sans-serif;font-weight:400;font-size:15px}      /* the buttons in the Mac's Chicago */
+#hostdev{height:30px;font:15px -apple-system,system-ui,sans-serif;padding:0 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}   /* 1.6 times the browser's default */
+button.aout,button.hold{font-family:'ChicagoFLF',Charcoal,sans-serif;font-size:12px;letter-spacing:0}         /* the switches' labels too (David, to try) */
+.bar b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--rec);flex:none;animation:pulse 1.6s infinite}
+.dot.off{background:var(--mute);animation:none}
+@keyframes pulse{50%{opacity:.35}}
+.bar .sp{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon{border:0;background:var(--card);color:var(--fg);border-radius:10px;height:34px;min-width:40px;font-size:18px;
+ box-shadow:0 0 0 1px var(--line) inset;cursor:pointer}
+.pill{border:0;background:var(--card);color:var(--fg);border-radius:10px;height:34px;padding:0 14px;font-family:inherit;
+ font-size:14px;font-weight:600;box-shadow:0 0 0 1px var(--line) inset;cursor:pointer;text-decoration:none;
+ display:inline-flex;align-items:center;box-sizing:border-box}
+.pill[hidden]{display:none}
+.bar .sp{text-align:center}
+/* The 1st-generation iPod, front face 61.8 x 102 mm. Every size below is a fraction of the face width
+   (--w), measured from a photo of David's iPod: screen window 65% wide, 4.7% down; wheel 83% across,
+   centred 69% down; scroll ring 78% and centre button 28% of the wheel. */
+.ipod{--w:var(--ipw);width:var(--w);height:calc(var(--w)*1.65);flex:none;
+ position:relative;margin-top:calc(56px + env(safe-area-inset-top));border-radius:calc(var(--w)*.075);
+ background:linear-gradient(90deg,#c9cacd,#eef0f2 6%,#f6f7f8 50%,#eceef0 94%,#c4c5c8);
+ box-shadow:0 0 0 1px rgba(0,0,0,.18),0 1px 0 1px rgba(255,255,255,.7) inset,0 18px 38px rgba(0,0,0,.22),0 3px 8px rgba(0,0,0,.14)}
+html.light .ipod{box-shadow:0 0 0 1px rgba(0,0,0,.14),0 1px 0 1px rgba(255,255,255,.8) inset,0 30px 28px -18px rgba(0,0,0,.42),0 10px 12px -8px rgba(0,0,0,.30)}
+html.dark .ipod{box-shadow:0 0 0 1px rgba(255,255,255,.10),0 1px 0 1px rgba(255,255,255,.7) inset}
+.face{position:absolute;inset:calc(var(--w)*.024);border-radius:calc(var(--w)*.055);
+ background:linear-gradient(170deg,#fdfdfc,#f1f1ef 60%,#ebebe9);box-shadow:0 0 0 1px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.08)}
+.hold{position:absolute;top:-30px;right:calc(var(--w)*.03);display:flex;align-items:center;gap:6px;border:0;
+ background:none;padding:0;cursor:pointer;color:var(--mute);font-size:10px;letter-spacing:.08em}
+.hold .sw{width:34px;height:12px;border-radius:3px;background:#b9babd;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.25) inset}
+.hold .sw::after{content:"";position:absolute;top:1px;left:2px;width:14px;height:10px;border-radius:2px;background:#f4f4f5;
+ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.hold.on .sw{background:#f39a1e}.hold.on .sw::after{left:18px}.hold.on{color:#c86f00}
+/* Where the iPod's sound plays: in this browser, or out of the machine the emulator runs on (web_audio.py).
+   The iPod itself is not told. */
+.aout{position:absolute;top:-30px;left:calc(var(--w)*.01);display:flex;align-items:center;gap:4px;border:0;white-space:nowrap;
+ background:none;padding:0;cursor:pointer;color:var(--mute);font-size:9.5px;letter-spacing:.02em}
+.aout .sw{width:34px;height:12px;border-radius:3px;background:#b9babd;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.25) inset}
+.aout .sw::after{content:"";position:absolute;top:1px;left:2px;width:14px;height:10px;border-radius:2px;background:#f4f4f5;
+ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.aout.on .sw::after{left:18px}.aout .here{color:var(--acc)}.aout.on .here{color:var(--mute)}.aout.on .host{color:var(--acc)}
+.bezel{position:absolute;left:17.5%;width:65%;top:4.7%;height:calc(var(--w)*.546);background:#3b3e38;border-radius:calc(var(--w)*.018);
+ padding:calc(var(--w)*.016) calc(var(--w)*.018);box-shadow:0 1px 0 rgba(255,255,255,.8),0 0 0 1px rgba(0,0,0,.25),0 2px 4px rgba(0,0,0,.25) inset;
+ display:flex;align-items:center;justify-content:center}
+canvas{display:block;height:100%;max-width:100%;aspect-ratio:160/128;image-rendering:pixelated;image-rendering:crisp-edges;border-radius:2px;
+ background:#b6bca9;box-shadow:0 1px 3px rgba(0,0,0,.35) inset}
+.wheel{--d:calc(var(--w)*.83);width:var(--d);height:var(--d);position:absolute;left:8.5%;top:calc(var(--w)*1.65*.691 - var(--d)/2);
+ border-radius:50%;touch-action:none;cursor:grab}
+.wheel svg.art{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.wheel .lbl{position:absolute;color:#98989c;font:500 calc(var(--d)*.05)/1 "Myriad Pro","Helvetica Neue",Helvetica,Arial,sans-serif;    /* subtle, as on the real wheel */
+ pointer-events:none;letter-spacing:.01em;transition:color .1s}
+.wheel .lbl.hot{color:var(--acc)}
+.wheel .lbl.m{inset:0;width:100%;height:100%}.wheel .lbl.m svg{width:100%;height:100%;overflow:visible}      /* "menu" follows the ring's curve, as on the real wheel */
+.lbl.m text{fill:currentColor;stroke:currentColor;stroke-width:.5px;font:500 10px "Myriad Pro","Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.1px}
+.lbl.p{bottom:5.5%;left:50%;transform:translate(-50%,50%) translateY(calc(var(--d)*-.003))}
+.lbl.r{left:5.4%;top:50%;transform:translate(-50%,-50%) translateX(calc(var(--d)*.0015))}
+.lbl.f{right:5.4%;top:50%;transform:translate(50%,-50%) translateX(calc(var(--d)*-.0015))}
+.wheel .lbl svg{width:1.6em;height:1em;display:block;fill:currentColor}
+.center{position:absolute;left:35.95%;top:35.95%;width:28.1%;height:28.1%;border-radius:50%;
+ background:radial-gradient(circle at 45% 35%,#fff,#f1f1f0 70%,#e6e6e4);
+ box-shadow:0 0 0 1px rgba(60,60,60,.55),0 1px 2px rgba(0,0,0,.12);pointer-events:none;transition:transform .06s}
+.center.hot{transform:scale(.96);background:radial-gradient(circle at 45% 35%,#f0f0f2,#dcdcdf)}
+.trail{position:absolute;width:12%;height:12%;border-radius:50%;background:rgba(10,102,194,.14);pointer-events:none;
+ transform:translate(-50%,-50%);display:none}
+.hint{color:var(--mute);font-size:12px;margin:10px 0 0;text-align:center;max-width:420px}
+/* The browser keeps the page's audio paused until a tap (autoplay rules); while it is, and sound is wanted, say so. */
+.anote{position:absolute;z-index:80;left:50%;top:calc(var(--w)*.047 + var(--w)*.546 - 46px);transform:translateX(-50%);max-width:calc(var(--w) - 20px);text-align:center;white-space:normal;background:rgba(20,20,22,.82);color:#fff;
+ font:600 13px/1 -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:99px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.sheet{position:fixed;inset:auto 0 0 0;max-height:82dvh;overflow:auto;background:var(--card);color:var(--fg);
+ border-radius:16px 16px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);padding:8px 16px calc(16px + env(safe-area-inset-bottom));
+ transform:translateY(105%);transition:transform .22s;max-width:560px;margin:auto;-webkit-user-select:text;user-select:text}
+.sheet.open{transform:none}
+.sheet{z-index:30;overscroll-behavior:contain}.scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.28);display:none}.scrim.on{display:block}
+.stats.four{grid-template-columns:repeat(4,1fr)}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px;box-shadow:0 0 0 14px transparent;cursor:grab}
+.sheet h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:16px 0 6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stats div{background:var(--bg);border-radius:10px;padding:8px;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.stats span{display:block;font-size:11px;font-weight:400;color:var(--mute)}
+input[type=text],textarea{width:100%;font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);
+ border-radius:10px;padding:9px 10px}
+textarea{min-height:64px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.btn{border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;background:var(--bg);color:var(--fg);
+ box-shadow:0 0 0 1px var(--line) inset;cursor:pointer}
+.btn.pri{background:var(--acc);color:#fff;box-shadow:none}.btn.warn{color:var(--rec)}.btn.on{background:var(--acc);color:#fff;box-shadow:none}
+.mono{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;color:var(--mute)}
+.shots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.shots img{width:100%;border-radius:4px;display:block;image-rendering:pixelated;background:#c8cfc0}
+ul.ev{list-style:none;margin:0;padding:0;font:12px ui-monospace,Menlo,monospace}
+ul.ev li{padding:4px 0;border-bottom:1px solid var(--line)}
+.small{font-size:12px;color:var(--mute)}
+.notice{position:fixed;left:12px;right:12px;top:12px;z-index:50;background:#c0392b;color:#fff;border-radius:12px;padding:12px 14px;
+ font-size:14px;line-height:1.35;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.notice::after{content:"  ✕";opacity:.8}
+.toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;
+ border-radius:20px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+.toast.show{opacity:.92}
+</style></head><body>
+<div class="ipod" id="ipod">
+ <button class="aout" id="aout" aria-label="Where the sound plays"><span class="here">Audio Here</span><span class="sw"></span><span class="host">Audio On Host</span></button>
+ <button class="hold" id="hold" aria-label="Hold switch"><span class="sw"></span>Hold</button>
+ <div class="face"></div>
+ <div class="bezel"><canvas id="lcd" width="160" height="128"></canvas></div>
+ <div class="anote" id="anote" hidden>Tap the screen to enable audio</div>
+ <div class="wheel" id="wheel" aria-label="Scroll wheel and buttons">
+  <svg class="art" viewBox="-100 -100 200 200" aria-hidden="true">
+   <defs>
+    <radialGradient id="g-ring" cx="0" cy="-30" r="140" gradientUnits="userSpaceOnUse">
+     <stop offset="0" stop-color="#fafaf9"/><stop offset=".7" stop-color="#efefed"/><stop offset="1" stop-color="#dcdcda"/></radialGradient>
+    <radialGradient id="g-scroll" cx="0" cy="-20" r="100" gradientUnits="userSpaceOnUse">
+     <stop offset="0" stop-color="#f6f6f5"/><stop offset=".85" stop-color="#e9e9e7"/><stop offset="1" stop-color="#dededc"/></radialGradient>
+   </defs>
+   <circle r="99.4" fill="url(#g-ring)" stroke="#bdbdbf" stroke-width=".8"/>
+   <g stroke="#8f8f93" stroke-width=".9" stroke-linecap="round">
+    <line x1="55.4" y1="-55.4" x2="70" y2="-70"/><line x1="55.4" y1="55.4" x2="70" y2="70"/>
+    <line x1="-55.4" y1="55.4" x2="-70" y2="70"/><line x1="-55.4" y1="-55.4" x2="-70" y2="-70"/></g>
+   <g stroke="#fff" stroke-width=".7" stroke-linecap="round" transform="translate(.7 .7)">
+    <line x1="55.4" y1="-55.4" x2="70" y2="-70"/><line x1="55.4" y1="55.4" x2="70" y2="70"/>
+    <line x1="-55.4" y1="55.4" x2="-70" y2="70"/><line x1="-55.4" y1="-55.4" x2="-70" y2="-70"/></g>
+   <circle r="78.4" fill="url(#g-scroll)" stroke="#9d9da1" stroke-width="1"/>
+   <circle r="76.6" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".8"/>
+  </svg>
+  <span class="lbl m" id="z-menu"><svg viewBox="-100 -100 200 200"><path id="menuarc" d="M-86.4 0A86.4 86.4 0 0 1 86.4 0" fill="none"/><text text-anchor="middle"><textPath href="#menuarc" startOffset="50%">menu</textPath></text></svg></span>
+  <span class="lbl r" id="z-rew"><svg viewBox="0 0 26 16"><path d="M2 2h2.4v12H2zM14 2v12L5 8zM24 2v12l-9-6z"/></svg></span>
+  <span class="lbl f" id="z-ff"><svg viewBox="0 0 26 16"><path d="M21.6 2H24v12h-2.4zM12 2v12l9-6zM2 2v12l9-6z"/></svg></span>
+  <span class="lbl p" id="z-play"><svg viewBox="0 0 26 16"><path d="M2 2v12l9-6zM14 2h3v12h-3zM20 2h3v12h-3z"/></svg></span>
+  <div class="trail" id="trail"></div>
+  <div class="center" id="z-select"></div>
+ </div>
+</div>
+<div class="bar"><a class="pill" id="cardsbtn" href="/cards">Cards</a><span class="sp" id="status">connecting…</span>
+<button class="pill" id="more">Session</button></div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+ <div class="grab"></div>
+ <div class="row" style="margin-top:0"><button class="btn warn" id="restart">Restart the iPod</button><button class="btn" data-close>Close</button></div>
+ <h3>Appearance</h3>
+ <div class="row"><button class="btn" id="th-light">Light mode</button><button class="btn" id="th-dark">Dark mode</button></div>
+ <h3>Feedback</h3>
+ <div class="row"><button class="btn" id="fb-sound">Click sound</button></div>
+ <p class="small" id="fb-note">A click for every wheel step and press, like the real iPod's. On iPhone the click plays even
+ with the silent switch on (Safari 16.4+).</p>
+ <h3>Host audio output</h3>
+ <div id="hostaudio"><div class="row"><select id="hostdev" style="flex:1;min-width:0"></select></div><p class="small" id="hostdev-note"></p></div>
+ <h3>Client Network Statistics</h3>
+ <div id="stats">
+  <div class="stat"><div class="sl">Latency</div><canvas id="c-lat"></canvas><div class="sv" id="v-lat">…</div></div>
+  <div class="stat"><div class="sl">Raw throughput</div><canvas id="c-bw"></canvas><div class="sv" id="v-bw">…</div></div>
+  <div class="stat"><div class="sl">Send / receive</div><canvas id="c-sr"></canvas><div class="sv" id="v-sr">…</div></div>
+  <canvas class="axis" id="ax-net"></canvas>
+  <p class="small" id="stat-note"></p>
+ </div>
+ <h3>iPod Statistics</h3>
+ <div id="ipodstats"></div>
+ <p class="small" id="ipod-note"></p>
+ <h3>Accessories</h3>
+ <div class="row">
+  <button class="btn" data-line="firewire" data-on="0" data-off="1" data-t1="FireWire power: on" data-t0="FireWire power: off">FireWire power</button>
+  <button class="btn" data-line="cna" data-on="0" data-off="1" data-t1="FireWire cable: in" data-t0="FireWire cable: out">FireWire cable</button>
+  <button class="btn" data-line="battery" data-on="1" data-off="0" data-t1="Battery line: high" data-t0="Battery line: low">Battery line</button>
+ </div>
+ <p class="small">Each button flips the line the firmware watches and shows its level. Power alone is a charger.
+ A cable makes the iPod ask to reboot into disk mode. The battery line reads low from power-on, but the
+ firmware only reacts to an edge: set it high, then low again, and it draws "Low Battery".</p>
+</div>
+<div class="toast" id="toast"></div>
+<div class="notice" id="notice" hidden onclick="this.hidden=true"></div>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const cv=$('lcd'),cx=cv.getContext('2d'),img=cx.createImageData(160,128);
+const PAL=[[182,188,169],[130,136,118],[80,85,70],[34,38,30]];
+// the backlight on (the Backlight item in the menu): the LCD reads whiter, with a touch of blue, as the iPod's LED backlit screen does
+const PAL_BL=[[238,243,250],[168,177,196],[84,91,110],[24,28,40]];
+let PALC=PAL,lastPx='';
+let last='',state={};
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),1600)}
+
+// ---- commands go out one at a time, in order; consecutive same-direction wheel turns merge
+const q=[];let busy=false;
+// Every wheel command carries the page's time of each detent in it (det), merged ones included; every
+// command carries the clicks the page played since the last one (clicks: [ms, played, asked, sound on]),
+// so a recording says when a click was heard against what the iPod did.
+const clog=[];
+function send(c){// the Hold switch cuts the buttons and the wheel off, as on the real iPod (the firmware only shows its lock icon): nothing but a key's release gets through
+ if(state.hold&&(c.do==='wheel'||c.do==='edges'||(c.do==='key'&&c.phase==='down')))return;
+ const l=q[q.length-1],w=c.do==='wheel'||c.do==='edges';if(w)c.det=Array(Math.abs(c.n)).fill(Date.now());
+ if(w&&l&&l.do===c.do&&Math.sign(l.n)===Math.sign(c.n)){l.n+=c.n;l.det=l.det.concat(c.det)}else q.push(c);pump()}
+async function pump(){if(busy||!q.length)return;busy=true;const c=q.shift();
+ const body=Object.assign({},c,{clicks:clog.splice(0),sent:Date.now()});
+ // a request that hangs (a locked or suspended page, a restarting server) must not block every key after it
+ try{await fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(4000)})}
+ catch(e){q.unshift(c);busy=false;setTimeout(pump,500);return}
+ busy=false;pump()}
+const key=(k,phase)=>send({do:'key',key:k,phase});
+// ---- feedback: the click is the iPod's own. The firmware clicks when the wheel moves an item and when a
+// button is pressed (never at a list's end); the server counts those clicks and the page plays one for each,
+// with a vibration where the browser has one (Android). On iPhone the haptic is the system tap Safari plays
+// when a switch control is toggled (iOS 17.4+), which only works inside a tap, so taps buzz there at once.
+const pref=(k,d)=>{try{const v=localStorage.getItem('emupod.'+k);return v===null?d:v==='1'}catch(e){return d}};
+const fb={sound:pref('sound',true),haptic:false,music:true};      // the iPod's sound is always on; no haptics (David, 2026-10-21)
+// The sound goes Web Audio -> the speakers. A quiet looping <audio> element plays beside it so that iOS gives the page its lock-screen buttons.
+// (Routing the sound through that element, Web Audio -> MediaStream -> <audio>, looped a 60 ms buffer on iOS: a stretch of clicks repeated for
+// seconds, phone recordings 20261019-073258 and the 10:08 reproduction. That path, and its switch, were removed on 2026-10-19.)
+const silent=new Audio('/silence.wav');silent.loop=true;silent.preload='auto';
+const AL={ev:[],chunks:0,frames:0,dropped:0,resumes:0};
+function alog(e){AL.ev.push([Date.now()%100000,e]);if(AL.ev.length>60)AL.ev.shift()}
+try{localStorage.removeItem('emupod.audiopath')}catch(e){}      // the old path's saved choice
+try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
+function out(a){return a.destination}
+let actx=null,tickbuf=null;
+// iOS: Web Audio is muted by the silent switch unless the page declares a playback audio session
+// (Safari 16.4+), and a context only starts from a touchend/click, not a touchstart.
+try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
+function audio(){if(actx)return actx;try{const A=window.AudioContext||window.webkitAudioContext;actx=new A();
+ const n=Math.round(actx.sampleRate*.004);tickbuf=actx.createBuffer(1,n,actx.sampleRate);const d=tickbuf.getChannelData(0);
+ for(let i=0;i<n;i++){const t=i/n;d[i]=(i<6?1:0)*(i%2?-1:1)*.9+(Math.random()*2-1)*Math.exp(-t*9)*.5}}catch(e){actx=null}return actx}
+function unlock(){silentPlay();const a=(fb.sound||fb.music)&&audio();if(!a)return;a.onstatechange=onst;try{if(a.state!=='running')a.resume();
+ const s=a.createBufferSource();s.buffer=a.createBuffer(1,1,a.sampleRate);s.connect(out(a));s.start(0)}catch(e){}}
+['touchend','pointerup','click','keydown'].forEach(t=>addEventListener(t,unlock,{capture:true,passive:true}));
+// Is sound coming out? A context the browser has not let start stays 'suspended' (iOS: also 'interrupted'), and
+// nothing it plays is heard. Make one at load (a browser that allows autoplay starts it at once) and show the note
+// until it runs.
+// shown only once the context has stayed not-running for 1.5 s, hidden at once when it runs: iOS flips the state briefly
+// (an interruption, the quiet element starting) and the note blinked (David, 2026-10-18)
+let anoteSince=0;
+function anote(){const a=actx,want=fb.music||fb.sound,ok=!want||!!(a&&a.state==='running')
+  ||!!$('cardsframe')||$('sheet').classList.contains('open')                   // not over the Cards page or the Session sheet
+  ||!!(state.jack&&state.jack.plugged)||!!state.hold;                           // nor when the music is on the host or Hold is on: the next tap brings the clicks back
+ if(ok){anoteSince=0;$('anote').hidden=true;return}
+ if(!anoteSince)anoteSince=Date.now();$('anote').hidden=Date.now()-anoteSince<1500}
+function onst(){alog('ctx '+(actx?actx.state:'?')+' el '+(silent.paused?'paused':'playing'));anote()}
+if(fb.music||fb.sound){audio();if(actx)actx.onstatechange=onst}
+setInterval(anote,500);anote();
+function tick(k){const a=fb.sound&&audio();
+ clog.push([Date.now(),a&&tickbuf?Math.min(k||1,4):0,k||1,fb.sound?1:0]);if(clog.length>400)clog.splice(0,clog.length-400);
+ if(!a||!tickbuf)return;if(a.state!=='running'){if(a.state==='suspended')a.resume();return}    // never queue clicks on a stopped context: they all play at once when it resumes (20 fast clicks, 2026-10-18)
+ for(let i=0;i<Math.min(k||1,4);i++){const s=a.createBufferSource(),g=a.createGain();g.gain.value=.55;s.buffer=tickbuf;
+  s.connect(g).connect(out(a));s.start(a.currentTime+i*.018)}}
+// iPhone haptic (iOS 18+): clicking a <label> for an <input switch> plays the system tap. It must happen inside
+// a real tap (pointerdown/up, click); iOS ignores it during a drag, so wheel turns cannot buzz on an iPhone.
+const VIB=!!navigator.vibrate;
+function iosTap(){try{const l=document.createElement('label'),i=document.createElement('input');i.type='checkbox';
+ i.setAttribute('switch','');l.appendChild(i);l.style.cssText='position:fixed;left:0;top:0;width:1px;height:1px;opacity:.01;overflow:hidden';
+ document.body.appendChild(l);l.click();l.remove()}catch(e){}}
+function buzz(ms){if(!fb.haptic||VIB)return;iosTap()}         // a tap on iPhone: the haptic must happen inside it
+let heard=null;                                              // the firmware's click count already played
+function clicks(n){if(heard===null||n<heard){heard=n;return}const k=n-heard;heard=n;if(!k)return;tick(k);
+ if(fb.haptic&&VIB){try{navigator.vibrate(6)}catch(e){}}}
+
+// ---- the click wheel: drag = scroll, tap/hold on a label = that key, centre = select
+// A 1G wheel turns freely: every EDGE (a quarter of the old 15-degree detent, 3.75 degrees) goes to the iPod
+// as it comes, and the firmware decides when an item moves (every 4-6 edges, 6 after a pause) and clicks.
+const wheel=$('wheel'),trail=$('trail'),DET=Math.PI/12,EDGE=DET/4;
+let g=null;
+function geo(e){const r=wheel.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;
+ return {a:Math.atan2(y,x),d:Math.hypot(x,y)/(r.width/2),x:e.clientX-r.left,y:e.clientY-r.top}}
+function zone(p){if(p.d<.31)return'select';const deg=p.a*180/Math.PI;
+ return deg>-135&&deg<=-45?'menu':deg>-45&&deg<=45?'ff':deg>45&&deg<=135?'play':'rew'}
+function hot(z,on){const el=$('z-'+z);el&&el.classList.toggle('hot',on)}
+wheel.addEventListener('pointerdown',e=>{e.preventDefault();if(state.hold)return;wheel.setPointerCapture(e.pointerId);
+ const p=geo(e),z=zone(p);g={id:e.pointerId,z,a:p.a,acc:0,mode:'pending',t:Date.now()};hot(z,true);
+ if(z==='select'){g.mode='key';key('select','down');buzz(8);return}
+ g.timer=setTimeout(()=>{if(g&&g.mode==='pending'){g.mode='key';key(g.z,'down');buzz(12)}},280)});
+wheel.addEventListener('pointermove',e=>{if(!g||e.pointerId!==g.id||g.z==='select')return;const p=geo(e);
+ let da=p.a-g.a;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;g.a=p.a;g.acc+=da;
+ if(g.mode==='pending'&&Math.abs(g.acc)>DET*.6){g.mode='scroll';clearTimeout(g.timer);hot(g.z,false);wheel.style.cursor='grabbing'}
+ if(g.mode==='scroll'){trail.style.display='block';trail.style.left=p.x+'px';trail.style.top=p.y+'px';
+  const n=Math.trunc(g.acc/EDGE);if(n){g.acc-=n*EDGE;send({do:'edges',n})}}});
+function end(e){if(!g||e.pointerId!==g.id)return;clearTimeout(g.timer);hot(g.z,false);trail.style.display='none';wheel.style.cursor='';
+ if(g.mode==='pending'){key(g.z,'down');key(g.z,'up');buzz(8)}else if(g.mode==='key')key(g.z,'up');g=null}
+wheel.addEventListener('pointerup',end);wheel.addEventListener('pointercancel',end);
+wheel.addEventListener('contextmenu',e=>e.preventDefault());
+// desktop: mouse wheel over the iPod scrolls, keyboard keys
+let macc=0;$('ipod').addEventListener('wheel',e=>{e.preventDefault();macc+=e.deltaY;const n=Math.trunc(macc/10);if(n){macc-=n*10;send({do:'edges',n})}},{passive:false});
+const KM={Enter:'select',Escape:'menu',Backspace:'menu',' ':'play',ArrowLeft:'rew',ArrowRight:'ff'};const kdown={};
+addEventListener('keydown',e=>{if(/INPUT|TEXTAREA/.test(e.target.tagName))return;
+ if(e.key==='ArrowUp'||e.key==='ArrowDown'){send({do:'edges',n:e.key==='ArrowUp'?-6:6});e.preventDefault()}
+ else if(e.key==='h'||e.key==='H'){if(!e.repeat)toggleHold()}
+ else if(KM[e.key]){e.preventDefault();if(!kdown[e.key]){kdown[e.key]=1;key(KM[e.key],'down');hot(KM[e.key],true)}}});
+addEventListener('keyup',e=>{if(KM[e.key]&&kdown[e.key]){delete kdown[e.key];key(KM[e.key],'up');hot(KM[e.key],false)}});
+
+function toggleHold(){send({do:'line',name:'hold',level:state.hold?0:1});buzz(10)}
+$('hold').onclick=toggleHold;
+document.querySelectorAll('[data-line]').forEach(b=>b.onclick=()=>{const n=b.dataset.line,on=(state.lines||{})[n]===+b.dataset.on;
+ send({do:'line',name:n,level:+(on?b.dataset.off:b.dataset.on)});buzz(10)});
+
+// ---- the sheet
+function fbshow(){$('fb-sound').classList.toggle('on',fb.sound);$('fb-sound').textContent='Click sound: '+(fb.sound?'on':'off')}
+function themeshow(){const d=document.documentElement.classList.contains('dark');$('th-light').classList.toggle('on',!d);$('th-dark').classList.toggle('on',d);
+ const m=document.querySelector('meta[name=theme-color]');if(m)m.content=d?'#000000':'#ffffff'}
+['light','dark'].forEach(k=>$('th-'+k).onclick=()=>{const c=document.documentElement.classList;c.remove('light','dark');c.add(k);
+ try{localStorage.setItem('emupod.theme',k)}catch(e){}themeshow();buzz(10)});
+themeshow();
+['sound'].forEach(k=>$('fb-'+k).onclick=()=>{fb[k]=!fb[k];try{localStorage.setItem('emupod.'+k,fb[k]?'1':'0')}catch(e){}
+ fbshow();buzz(10);syncStream()});
+
+// ---- the iPod's sound. Switch on 'plays here': stream it from /audio (raw s16le stereo, 44.1 kHz) and schedule it here,
+// about 0.4 s behind (0.2 ran dry after a song change: the emulator is near real time for a second as a song starts); the sound then follows the emulator by that much. 'On host': the server plays it.
+let aStream=null,aTried=0,mgain=null;
+const CID=Math.random().toString(36).slice(2,10);                      // this page's id, for the server's per-page sound statistics
+// what the stream did, sent with each /cmd 'alog' every few seconds while it should play (recorded, not an input):
+// iOS Safari went silent after the host and back (2026-10-18) where Chromium did not, so the page reports it.
+// ---- Phone diagnostics: what this device is doing, sent with the audio log into the session's recording (read with python3 -m emupod.harness.phonelog).
+// Four times a second: the audio clock (ctx.currentTime, which must advance as fast as the wall clock while the context runs), the context's and
+// iOS's audio session state (navigator.audioSession, Safari 16.4+: active / interrupted / inactive), the quiet element's state and time, and how
+// many animation frames drew. Events: the main thread stalling (a timer that runs late), the audio clock stalling, an audio session change, a
+// touch or pointer cancelled, the page frozen / resumed / shown / hidden.
+const DG={s:[],raf:0,last:performance.now(),stall:0,cancels:0};
+(function r(){DG.raf++;requestAnimationFrame(r)})();
+setInterval(()=>{const now=performance.now(),dt=now-DG.last;DG.last=now;const a=actx,as=String((navigator.audioSession&&navigator.audioSession.state)||'-');            // state is missing on some Safari versions
+ if(dt>400)alog('main thread late '+Math.round(dt-250)+' ms');
+ const ct=a?a.currentTime:0;const adv=DG.ct!=null&&dt>0?(ct-DG.ct)*1000/dt:null;DG.ct=ct;
+ if(a&&a.state==='running'&&adv!=null&&adv<.5&&dt<1500){if(++DG.stall===2)alog('audio clock stalled (advanced '+adv.toFixed(2)+' of real time)')}else DG.stall=0;
+ DG.s.push([Math.round(now),+ct.toFixed(3),a?a.state[0]:'-',as[0],silent.paused?0:1,+silent.currentTime.toFixed(2),DG.raf,Math.round(dt)]);if(DG.s.length>80)DG.s.shift()},250);
+try{if(navigator.audioSession)navigator.audioSession.addEventListener('statechange',()=>alog('audioSession '+navigator.audioSession.state))}catch(e){}
+for(const t of ['pointercancel','touchcancel'])addEventListener(t,()=>{DG.cancels++;alog(t+' ('+DG.cancels+')')},true);
+for(const t of ['pagehide','pageshow','freeze','resume'])addEventListener(t,()=>alog('page '+t),true);
+function wantStream(){return fb.music&&state.phase==='running'&&state.jack&&!state.jack.plugged}
+function syncStream(){if(wantStream()){if(!aStream&&Date.now()-aTried>2000)startStream()}else if(aStream){aStream.abort();aStream=null}}
+async function startStream(){const ctl=new AbortController();aStream=ctl;aTried=Date.now();let next=0,rest=new Uint8Array(0);
+ alog('start '+(actx?actx.state:'none')+' '+navigator.userAgent.replace(/^.*?\) /,'').slice(0,50));
+ NET.audioRecv=0;try{const r=await fetch('/audio?cid='+CID,{signal:ctl.signal,cache:'no-store'});alog('http '+r.status);const rd=r.body.getReader();
+  for(;;){const {value,done}=await rd.read();if(done)break;let b=value;
+   if(rest.length){const m=new Uint8Array(rest.length+b.length);m.set(rest);m.set(b,rest.length);b=m}
+   netBytes(value.length);NET.audioRecv+=value.length;const n=b.length>>2;rest=b.slice(n*4);const a=actx;AL.chunks++;
+   if(n&&a&&a.state!=='running'){AL.dropped+=n;if(Date.now()-(AL.rt||0)>2000){AL.rt=Date.now();AL.resumes++;try{a.resume()}catch(e){}}}   // iOS suspends (or 'interrupts') a quiet context
+   if(!n||!a||a.state!=='running')continue;                                                // not unlocked yet: dropped
+   AL.frames+=n;
+   if(!mgain){mgain=a.createGain();mgain.gain.value=.9;mgain.connect(out(a))}
+   const dv=new DataView(b.buffer,b.byteOffset,n*4),buf=a.createBuffer(2,n,44100),L=buf.getChannelData(0),R=buf.getChannelData(1);
+   for(let i=0;i<n;i++){L[i]=dv.getInt16(i*4,true)/32768;R[i]=dv.getInt16(i*4+2,true)/32768}
+   const now=a.currentTime;if(next<now+.03||next>now+1.5)next=now+.4;        // after a gap (or too far behind): rebuffer
+   const s=a.createBufferSource();s.buffer=buf;s.connect(mgain);s.start(next);next+=n/44100}
+ alog('end');}catch(e){alog('error '+e.name)}
+ if(aStream===ctl)aStream=null}
+$('aout').onclick=()=>{const on=!(state.jack&&state.jack.plugged);send({do:'jack',plugged:on});buzz(10);alog(on?'to host':'to here');
+ if(!on&&actx){try{actx.resume()}catch(e){}}                                    // inside the tap: iOS lets a context resume here
+};
+fbshow();
+// the two sheets: Session (everyday) and Developer (the recording); a tap outside one closes it
+// ---- the host's audio output (the sound goes there when 'Audio on host' is on): a list from the server (PulseAudio / PipeWire sinks, or ALSA cards)
+async function loadHostDev(){if(window.OFFLINE){$('hostaudio').hidden=true;$('hostaudio').previousElementSibling.hidden=true;return}
+ try{const r=await (await fetch('/api/audio/devices',{cache:'no-store'})).json(),sel=$('hostdev');
+  sel.innerHTML='<option value="">System default</option>'+r.devices.map(d=>'<option value="'+d.id.replace(/"/g,'&quot;')+'">'+d.label.replace(/</g,'&lt;')+(d.holder?' — in use by '+d.holder.replace(/</g,'&lt;'):'')+'</option>').join('');
+  sel.value=r.current||'';sel.disabled=!!r.custom||!r.devices.length;
+  $('hostdev-note').textContent=r.custom?'This server was started with its own player ('+r.custom_command+'), so the output is not chosen here.':
+   !r.devices.length?'No audio outputs were found on the host.':'Used when “Audio on host” is on (the switch at the top of the page); the host plays the sound ('+(r.backend==='pulse'?'PulseAudio / PipeWire outputs':'ALSA outputs')+'). Changing it moves the sound at once.'}
+ catch(e){$('hostdev-note').textContent='Could not read the host\'s outputs.'}}
+$('hostdev').onchange=async()=>{try{const r=await fetch('/api/audio/device',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:$('hostdev').value})});
+ const j=await r.json();if(j.error){toast(j.error);loadHostDev()}else toast('Host audio output changed')}catch(e){toast('Could not change the output')}};
+function openSheet(id){closeSheets();if(id==='sheet')loadHostDev();$(id).classList.add('open');$('scrim').classList.add('on')}
+function closeSheets(){['sheet'].forEach(i=>$(i).classList.remove('open'));$('scrim').classList.remove('on')}
+// no double-tap or pinch zoom: touch-action covers the double tap on iOS 13+; the rest (a double tap on something inert, a pinch) is stopped here
+(function(){let t=0;
+ addEventListener('touchend',e=>{const n=Date.now();if(n-t<350&&!(e.target.closest&&e.target.closest('button,a,input,select,textarea,label')))e.preventDefault();t=n},{passive:false,capture:true});
+ addEventListener('dblclick',e=>e.preventDefault(),true);
+ for(const g of ['gesturestart','gesturechange','gestureend'])addEventListener(g,e=>e.preventDefault())})();
+$('more').onclick=()=>openSheet('sheet');
+// Cards opens over this page, in a frame: leaving the page would stop its sound and the lock screen's controls
+$('cardsbtn').addEventListener('click',e=>{e.preventDefault();let f=$('cardsframe');if(!f){f=document.createElement('iframe');f.id='cardsframe';
+ f.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;border:0;z-index:60;background:var(--bg)';document.body.appendChild(f)}
+ f.src=e.currentTarget.getAttribute('href')});
+addEventListener('message',e=>{if(e.origin!==location.origin)return;const m=e.data||{},f=$('cardsframe');
+ if(m.t==='cards-close'&&f)f.remove();
+ if(m.t==='rebooting'){if(f)f.remove();last='';toast('Rebooting…');if(window.OFFLINE)location.reload()}});
+$('scrim').onclick=closeSheets;
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeSheets);
+// drag a sheet down to shut it: from its top (or anywhere while it is scrolled to the top), it follows the finger;
+// let go past 80 px (or with a quick flick) and it snaps shut, otherwise it springs back. Touch events, not pointer
+// events: on iOS a finger drag becomes a scroll and the pointer events are cancelled (David, 2026-10-18), so the
+// page takes the move itself (preventDefault) when the sheet is at its top and the finger goes down.
+['sheet'].forEach(id=>{const el=$(id);let y0=null,t0=0,dy=0,live=false;
+ const begin=(y,target)=>{if(target.closest('button,input,textarea,a'))return;
+  if(el.scrollTop>0&&!target.closest('.grab'))return;y0=y;t0=performance.now();dy=0;live=false};
+ const move=(y,ev)=>{if(y0===null)return;dy=y-y0;
+  if(!live){if(dy>6&&el.scrollTop<=0){live=true;el.style.transition='none'}else if(dy<-6){y0=null;return}else return}
+  if(ev&&ev.cancelable)ev.preventDefault();el.style.transform='translateY('+Math.max(0,dy)+'px)'};
+ const end=()=>{if(y0===null)return;const v=dy/Math.max(1,performance.now()-t0);y0=null;el.style.transition='';el.style.transform='';
+  if(live&&(dy>80||v>.6))closeSheets();live=false};
+ el.addEventListener('touchstart',e=>begin(e.touches[0].clientY,e.target),{passive:true});
+ el.addEventListener('touchmove',e=>move(e.touches[0].clientY,e),{passive:false});
+ el.addEventListener('touchend',end);el.addEventListener('touchcancel',end);
+ el.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')begin(e.clientY,e.target)});      // a mouse: pointer events
+ addEventListener('pointermove',e=>{if(e.pointerType==='mouse')move(e.clientY,null)});
+ addEventListener('pointerup',e=>{if(e.pointerType==='mouse')end()})});
+$('restart').onclick=()=>{if(!confirm('Restart the iPod?'))return;
+ send({do:'restart',text:''});closeSheets();
+ last='';toast('Rebooting…')};
+if(/[?&]rebooting=1/.test(location.search)){history.replaceState(null,'','/');toast('Rebooting…')}
+
+// ---- the screen and status: long poll
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function draw(b64){lastPx=b64;const p=atob(b64),d=img.data;for(let i=0;i<p.length;i++){const v=p.charCodeAt(i);
+ for(let k=0;k<4;k++){const c=PALC[(v>>(6-2*k))&3],o=(i*4+k)*4;d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255}}cx.putImageData(img,0,0)}
+function fmt(e){if(e.t==='note')return'#'+e.step+' note: '+esc(e.text);
+ if(e.t==='jack')return'#'+e.step+' audio '+(e.plugged?'on host':'plays here');
+ return'#'+e.step+' '+(e.do==='wheel'?'wheel '+(e.n>0?'+':'')+e.n:e.do==='edges'?'wheel '+(e.n>0?'+':'')+e.n+' edges':e.do==='key'?e.key+' '+e.phase:e.name+'='+e.level)}
+let shown='';
+// ---- the lock screen and Control Center: Now Playing shows the iPod's own screen as its cover (its title, artist and
+// album, the bar and times are on it), and the transport buttons press the iPod's. Set when the screen changes,
+// (see msUpdate).
+let msAt=0,msScreen='';
+function tap(k){key(k,'down');setTimeout(()=>key(k,'up'),120)}
+// iOS gives a page's lock-screen buttons to an <audio> element it is playing, and none to Web Audio alone (the
+// buttons showed dimmed and pause did nothing). So a silent, looping element plays beside the real sound.
+function silentPlay(){try{const p=silent.play();if(p&&p.catch)p.catch(()=>{})}catch(e){}}
+// the element must stay playing for iOS to keep the lock-screen buttons: after a server restart, a network stall or a
+// pause iOS made it load again and play it (only once the page has started it: a play() before a tap is refused)
+let silentOn=false,silentAt=0;
+function silentKeep(){if(!silentOn)return;if(silent.error||silent.networkState===3){silent.src='/silence.wav?'+Date.now();silent.load()}
+ if(silent.paused&&state&&state.audio&&Date.now()-silentAt>10000){silentAt=Date.now();silentPlay()}}
+silent.addEventListener('playing',()=>{silentOn=true;alog('el playing')});
+for(const e of ['pause','stalled','waiting','ended'])silent.addEventListener(e,()=>alog('el '+e));
+document.addEventListener('visibilitychange',()=>alog('page '+document.visibilityState));
+for(const e of ['pause','error','stalled','ended','emptied'])silent.addEventListener(e,()=>setTimeout(silentKeep,300));
+setInterval(silentKeep,3000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)silentKeep()});
+if('mediaSession' in navigator){const ms=navigator.mediaSession;
+ const act=(a,fn)=>{try{ms.setActionHandler(a,fn)}catch(e){}};
+ act('play',()=>{silentPlay();if(!(state&&state.audio))tap('play')});
+ act('pause',()=>{if(state&&state.audio)tap('play')});
+ act('previoustrack',()=>tap('rew'));act('nexttrack',()=>tap('ff'));
+ // no seekbackward/seekforward: iOS then shows its 10-second skip buttons in place of previous/next
+ for(const a of ['seekbackward','seekforward','seekto'])act(a,null)}
+let msPlay=null,msNp='',msTimer=0;
+function msUpdate(s){if(!('mediaSession' in navigator))return;const ms=navigator.mediaSession;
+ const playing=!!s.audio;try{ms.playbackState=playing?'playing':'paused'}catch(e){}
+ // the real position, read off the iPod's own Now Playing screen (elapsed, remaining): the lock screen's bar and times
+ const np=s.np?s.np.join(','):'';
+ if(np!==msNp){msNp=np;try{if(s.np)ms.setPositionState({duration:s.np[0]+s.np[1],position:s.np[0],playbackRate:1});else ms.setPositionState()}catch(e){}}
+ // the cover: each new image makes iOS re-tint the whole lock screen, and the iPod's title scrolls all the time, so it
+ // is set at most every 5 s, at once when play/pause changes, and once more if the screen changed meanwhile
+ const force=msPlay!==null&&msPlay!==playing;msPlay=playing;
+ if(s.screen===msScreen)return;
+ const wait=5000-(Date.now()-msAt);
+ if(!force&&wait>0){if(!msTimer)msTimer=setTimeout(()=>{msTimer=0;msUpdate(state)},wait+50);return}
+ msScreen=s.screen;msAt=Date.now();
+ try{ms.metadata=new MediaMetadata({title:'emupod',artist:s.card?s.card.name:'',album:'',
+  artwork:s.screen?[{src:'/screen.png?v='+s.screen,sizes:'832x832',type:'image/png'}]:[]})}catch(e){}}
+function render(s){state=s;if(s.clicks!=null)clicks(s.clicks);msUpdate(s);
+ {const pal=s.backlight?PAL_BL:PAL;if(pal!==PALC){PALC=pal;if(lastPx)draw(lastPx)}}
+ const cn=$('cardnow');if(cn)cn.textContent=s.card?'Running card “'+s.card.name+'”'+(s.card.keep?'':' (changes discarded)'):'Running the built-in card';
+ $('status').textContent=s.phase==='running'?'':s.phase+'…';
+ $('hold').classList.toggle('on',!!s.hold);
+ if(s.notice&&s.notice!==render.note){render.note=s.notice;$('notice').textContent=s.notice;$('notice').hidden=false}
+ else if(!s.notice&&render.note){render.note='';$('notice').hidden=true}
+ const j=s.jack||{};$('aout').classList.toggle('on',!!j.plugged);
+ if(j.error&&j.error!==render.aerr)toast('Audio on host: '+j.error);render.aerr=j.error;syncStream();
+ document.querySelectorAll('[data-line]').forEach(b=>{const on=(s.lines||{})[b.dataset.line]===+b.dataset.on;
+  b.textContent=on?b.dataset.t1:b.dataset.t0;b.classList.toggle('on',on&&b.dataset.line!=='battery')});
+}
+// ---- Statistics (Session sheet). Three measures, each a chart of the last five minutes of one-second averages with the last 3 s beside it.
+// LATENCY: the round trip of a tiny /ping; under 60 ms is good, under 150 ms fair.
+// RAW THROUGHPUT: the bytes arriving a second (the sound and the state), in kB/s. The sound stream needs 176.4 kB/s (44,100 stereo
+//   16-bit frames a second): while it plays, 176 kB/s or more is good, 150 or more fair; judged only while the sound plays.
+// SEND / RECEIVE: what the page receives of the sound, as a percentage of what the server is sending this page (the server counts,
+//   per page (CID), the sound it has written to the page's socket, what it had to throw away because the page's queue overflowed, and
+//   any write that had to wait for the socket; /ping brings that back). It tops out at 100%: more bandwidth than the stream needs is
+//   invisible. Below 100% the link is not keeping up (sound is queuing on the way); 95% or more is good, 85% or more fair, less is a
+//   bottleneck, and so is any sound the server had to drop.
+const NET={bytes:0,lastBytes:0,audioRecv:0,lastAudio:0,pings:[],lat:[],bw:[],audio:[],srv:[],sr:[],backlog:[],drops:[],streaming:[],last:null};
+const LAT_GOOD=60,LAT_FAIR=150,BW_GOOD=176,BW_FAIR=150,SR_GOOD=95,SR_FAIR=85,COL={good:'#2e9e4f',fair:'#d9a400',bad:'#c0392b',idle:'#8e8e93'};
+function netBytes(n){NET.bytes+=n}
+async function ping(){const t0=performance.now();
+ try{const r=await fetch('/ping?cid='+CID,{cache:'no-store'});const tx=await r.text();const ms=performance.now()-t0;netBytes(tx.length);NET.pings.push(ms);
+  const j=JSON.parse(tx);NET.ipod=j.ipod||null;NET.last=j.audio?Object.assign({},j.audio,{backlog:Math.max(0,j.audio.sent-NET.audioRecv)}):null}catch(e){NET.pings.push(null);NET.last=null}}
+function mean3(a){const v=a.slice(-3).filter(x=>x!=null);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null}
+const streamingNow=()=>NET.streaming.slice(-3).every(Boolean);
+function rateLat(v){return v==null?'bad':v<LAT_GOOD?'good':v<LAT_FAIR?'fair':'bad'}
+function rateRaw(v){return !streamingNow()?'idle':v>=BW_GOOD?'good':v>=BW_FAIR?'fair':'bad'}
+function rateSR(v){if(!streamingNow()||v==null)return 'idle';
+ if(NET.drops.slice(-5).some(x=>x>0))return 'bad';return v>=SR_GOOD?'good':v>=SR_FAIR?'fair':'bad'}
+const HIST=300;                                              // five minutes of one-second averages
+// the time markers (how long ago; the right edge is now), the same on every chart of a group; one labelled axis under the group (axis())
+function timeTicks(w,dpr){const out=[];let lastX=w+1e9;
+ for(const [sec,lb] of [[30,'30 s'],[60,'1 min'],[120,'2 min'],[180,'3 min'],[240,'4 min']]){const x=w-sec*(w/(HIST-1));
+  if(x<30*dpr||lastX-x<44*dpr||w-x<50*dpr)continue;lastX=x;out.push([x,lb])}return out}      // clear of 'now' at the right edge and of each other
+function axis(id){const c=$(id),r=c.getBoundingClientRect(),dpr=window.devicePixelRatio||1;if(r.width<10)return;
+ const W=Math.round(r.width*dpr),H=Math.round(r.height*dpr);if(c.width!==W||c.height!==H){c.width=W;c.height=H}
+ const g=c.getContext('2d');g.clearRect(0,0,W,H);g.font=(10*dpr)+'px -apple-system,system-ui,sans-serif';g.textBaseline='middle';g.fillStyle='rgba(128,128,128,.95)';g.strokeStyle='rgba(128,128,128,.5)';g.lineWidth=dpr;
+ for(const [x,lb] of timeTicks(W,dpr)){g.beginPath();g.moveTo(x,0);g.lineTo(x,4*dpr);g.stroke();g.textAlign='right';g.fillText(lb,x-3*dpr,H/2+dpr)}
+ g.textAlign='right';g.fillText('now',W-1,H/2+dpr)}
+function chart(id,series,hi,marks,col){const c=$(id),r=c.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+ if(r.width<10)return;const W=Math.round(r.width*dpr),H=Math.round(r.height*dpr);if(c.width!==W||c.height!==H){c.width=W;c.height=H}
+ const g=c.getContext('2d'),w=W,h=H;g.clearRect(0,0,w,h);g.lineJoin='round';
+ for(const [x] of timeTicks(w,dpr)){g.strokeStyle='rgba(128,128,128,.28)';g.setLineDash([]);g.lineWidth=dpr;g.beginPath();g.moveTo(x,0);g.lineTo(x,h);g.stroke()}
+ const y=v=>h-3-(Math.min(Math.max(v,0),hi))/hi*(h-6);
+ g.strokeStyle='rgba(128,128,128,.45)';g.setLineDash([4*dpr,4*dpr]);g.lineWidth=dpr;
+ for(const t of marks){g.beginPath();g.moveTo(0,y(t));g.lineTo(w,y(t));g.stroke()}
+ g.setLineDash([]);
+ series.forEach((sr,k)=>{g.strokeStyle=k===series.length-1?col:'rgba(128,128,128,.8)';g.lineWidth=(k===series.length-1?1.8:1.2)*dpr;g.beginPath();let pen=false;
+  sr.forEach((v,i)=>{if(v==null){pen=false;return}const x=w-(sr.length-1-i)*(w/(HIST-1));pen?g.lineTo(x,y(v)):g.moveTo(x,y(v));pen=true});g.stroke()})}
+setInterval(()=>{
+ const p=NET.pings.splice(0).filter(x=>x!=null);NET.lat.push(p.length?p.reduce((a,b)=>a+b,0)/p.length:null);
+ NET.bw.push((NET.bytes-NET.lastBytes)/1024);NET.lastBytes=NET.bytes;
+ NET.audio.push((NET.audioRecv-NET.lastAudio)/1024);NET.lastAudio=NET.audioRecv;
+ const L=NET.last;NET.srv.push(L?L.rate_bps/1024:null);NET.backlog.push(L?L.backlog/176.4:null);
+ NET.drops.push(L&&NET.prevDropped!=null?Math.max(0,L.dropped-NET.prevDropped):0);NET.prevDropped=L?L.dropped:null;
+ NET.streaming.push(!!(aStream&&state.audio));
+ const sv3=mean3(NET.srv),au3=mean3(NET.audio);
+ NET.sr.push(sv3>20&&au3!=null?Math.min(100,au3/sv3*100):null);                       // capped: bandwidth beyond the stream's need is invisible
+ for(const k of ['lat','bw','audio','srv','sr','backlog','drops','streaming'])if(NET[k].length>HIST)NET[k].shift();
+ if(!$('sheet').classList.contains('open'))return;
+ const lat=mean3(NET.lat),bw=mean3(NET.bw),sr=mean3(NET.sr),rl=rateLat(lat),rr=rateRaw(bw),rs=rateSR(sr),bl=NET.backlog[NET.backlog.length-1];
+ $('v-lat').textContent=lat==null?'no reply':lat.toFixed(lat<10?1:0)+' ms';$('v-lat').style.color=COL[rl];
+ $('v-bw').innerHTML='<span style="color:'+COL[rr]+'">'+bw.toFixed(bw<10?1:0)+' kB/s</span>';
+ $('v-sr').innerHTML='<span style="color:'+COL[rs]+'">'+(sr==null||!streamingNow()?'—':sr.toFixed(0)+'%')+'</span><div class="small" style="font-weight:400">'+
+  (streamingNow()&&sv3!=null?'server sends '+sv3.toFixed(0)+' kB/s'+(bl!=null?'<br>in flight '+bl.toFixed(0)+' ms':''):'while sound plays')+'</div>';
+ chart('c-lat',[NET.lat],Math.max(200,...NET.lat.filter(x=>x!=null)),[LAT_GOOD,LAT_FAIR],COL[rl]);
+ chart('c-bw',[NET.bw],Math.max(220,...NET.bw),[BW_GOOD,BW_FAIR],COL[rr]);
+ chart('c-sr',[NET.sr],100,[SR_GOOD,SR_FAIR],COL[rs]);axis('ax-net');
+ const dr=NET.drops.slice(-300).reduce((a,b)=>a+b,0);
+ $('stat-note').innerHTML='<b>Latency</b>: round trip to the server; good under '+LAT_GOOD+' ms, fair under '+LAT_FAIR+'. <b>Raw throughput</b>: all bytes arriving; the sound stream needs 176 kB/s (good from '+BW_GOOD+', fair from '+BW_FAIR+', judged only while sound plays). '+
+  '<b>Send / receive</b>: the sound that arrives as a share of what the server sends this page, at most 100%; below '+SR_GOOD+'% the link is falling behind ('+SR_FAIR+'% fair, less is a bottleneck).'+
+  (dr>0?' The server had to drop '+(dr/1024).toFixed(0)+' kB of sound in the last five minutes.':'')},1000);
+setInterval(ping,500);                                      // offline too: the shim answers /ping with the core's counters (the iPod Statistics)
+if(window.OFFLINE){$('stats').hidden=true;$('stats').previousElementSibling.hidden=true}      // the link to a server: this copy has none (its charts still update, unseen)
+// ---- iPod Statistics: what the emulated iPod is doing (the Rust core's counters, from /ping). Each row: a chart of the last five minutes and the last 3 s average.
+// A processor that is halted (asleep) uses nothing; the firmware's wait loops count as busy, as they would on the real chip.
+const IPS=[['cpu1','CPU 1','%'],['cpu2','CPU 2 (coprocessor)','%'],['work1','CPU 1 work, waits, sleep','%'],['work2','CPU 2 work, waits, sleep','%'],['wake','Inter-processor messages','/s'],
+ ['io','Storage subsystem','IOPS'],['irq','Interrupts','/s'],['under','Sound underruns','/s'],['spd','Emulator speed','×'],['lcd','LCD writes','/s']];
+$('ipodstats').innerHTML=IPS.map(([k,l])=>'<div class="stat"><div class="sl">'+l+'</div><canvas id="c-'+k+'"></canvas><div class="sv" id="v-'+k+'">…</div></div>').join('')+'<canvas class="axis" id="ax-ip"></canvas>';
+const IP={snap:null,prev:null,ser:{cpu1:[],cpu2:[],io:[],spd:[],lcd:[],rd:[],wr:[],kr:[],kw:[],mips1:[],mips2:[],host:[],tk:[],
+ work1:[],work2:[],wait1:[],wait2:[],nap1:[],nap2:[],wake:[],sigs:[],sigt:[],cmds:[],irq:[],fiq:[],oirq:[],under:[]},sub:{}};
+const SPD_GOOD=.99,SPD_FAIR=.95;
+setInterval(()=>{const s=NET.ipod;if(!s){IP.snap=null;return}
+ const p=IP.prev;IP.prev=s;if(!p||s.wall===p.wall){return}
+ const dus=s.now_us-p.now_us,dw=(s.wall-p.wall);if(dus<=0||dw<=0)return;
+ const d=k=>s[k]-p[k],push=(k,v)=>{IP.ser[k].push(v);if(IP.ser[k].length>HIST)IP.ser[k].shift()};
+ const c1=d('cpu_instr')/s.cpu_ipus/dus*100,c2=d('cop_instr')/s.cop_ipus/dus*100,iops=(d('ata_reads')+d('ata_writes'))/ (dus/1e6);
+ push('cpu1',Math.min(100,c1));push('cpu2',Math.min(100,c2));push('io',iops);push('spd',dus/1e6/dw);push('lcd',d('lcd_writes')/(dus/1e6));
+ push('rd',d('ata_reads')/(dus/1e6));push('wr',d('ata_writes')/(dus/1e6));push('kr',d('ata_sectors_read')*.5/(dus/1e6));push('kw',d('ata_sectors_written')*.5/(dus/1e6));
+ push('mips1',d('cpu_instr')/dus);push('mips2',d('cop_instr')/dus);push('host',100*(s.host_cpu_s-p.host_cpu_s)/dw);push('tk',d('ticks')/(dus/1e6));
+ // each processor's time in three parts: real work, the wait loops the emulator skips (counted in its instructions), asleep (halted)
+ const sec=dus/1e6,pct=(v,cap)=>Math.max(0,Math.min(100,100*v/cap)),c1cap=s.cpu_ipus*dus,c2cap=s.cop_ipus*dus;
+ push('work1',pct(d('cpu_instr')-d('cpu_skipped'),c1cap));push('wait1',pct(d('cpu_skipped'),c1cap));push('nap1',100-pct(d('cpu_instr'),c1cap));
+ push('work2',pct(d('cop_instr')-d('cop_skipped'),c2cap));push('wait2',pct(d('cop_skipped'),c2cap));push('nap2',100-pct(d('cop_instr'),c2cap));
+ push('wake',(d('sig_sent')||0)/sec);push('sigs',(d('cop_wakes')||0)/sec);push('sigt',(d('sig_taken')||0)/sec);
+ push('cmds',(d('ata_cmds')||0)/sec);
+ push('irq',((d('irqs')||0)+d('audio_fiqs'))/sec);push('fiq',d('audio_fiqs')/sec);push('oirq',Math.max(0,(d('irqs')||0)-d('ticks'))/sec);
+ push('under',s.fw_underruns>=0&&p.fw_underruns>=0?Math.max(0,d('fw_underruns'))/sec:null);
+ if(d('ata_reads')>0)IP.lastRead=Date.now();
+ const ago=()=>{if(!IP.lastRead)return 'before this page opened';const t=(Date.now()-IP.lastRead)/1000;return t<2?'just now':t<90?Math.round(t)+' s ago':Math.round(t/60)+' min ago'};
+ const mb=sec=>(sec*.5/1024).toFixed(sec*.5/1024<10?1:0);
+ const ioSub=x=>x.ata_reads+' reads, '+mb(x.ata_sectors_read)+' MB since boot<br>'+x.ata_writes+' writes, '+mb(x.ata_sectors_written)+' MB'+(x.ata_reads?'<br>last read '+ago():'');
+ const m=k=>mean3(IP.ser[k]),f=(v,n)=>v==null?'—':v.toFixed(n);                       // every number beside a chart is the same last-3 s average
+ const fw=s.fw_underruns>=0;
+ IP.sub={cpu1:f(m('mips1'),1)+' MIPS',cpu2:f(m('mips2'),1)+' MIPS',
+  work1:f(m('work1'),0)+'% work · '+f(m('wait1'),0)+'% wait loops · '+f(m('nap1'),0)+'% asleep',work2:f(m('work2'),0)+'% work · '+f(m('wait2'),0)+'% wait loops · '+f(m('nap2'),0)+'% asleep',
+  wake:'CPU 1 to CPU 2, '+f(m('sigt'),0)+'/s taken<br>woke CPU 2 from sleep '+f(m('sigs'),1)+'/s',
+  irq:'timer '+f(m('tk'),0)+'/s · sound '+f(m('fiq'),0)+'/s · other '+f(m('oirq'),1)+'/s',
+  under:fw?s.fw_underruns+' since boot (the firmware\'s own count)<br>'+(s.audio_late||0)+' sound interrupts held off':'counted only on 1.5-based firmware',
+  io:'read '+f(m('kr'),1)+' · written '+f(m('kw'),1)+' kB/s · '+f(m('cmds'),1)+' commands/s<br>'+ioSub(s),
+  spd:'host: '+f(m('host'),0)+'% of a core',lcd:'ticks '+f(m('tk'),0)+'/s'};
+ if(!$('sheet').classList.contains('open'))return;
+ const col=k=>{if(k!=='spd')return '#5b8def';const v=mean3(IP.ser.spd);return v==null?COL.idle:v>=SPD_GOOD?COL.good:v>=SPD_FAIR?COL.fair:COL.bad};
+ const top=(k,lo)=>Math.max(lo,...IP.ser[k].filter(v=>v!=null));
+ const hi={cpu1:100,cpu2:100,work1:100,work2:100,wake:top('wake',10),io:top('io',10),irq:top('irq',200),under:top('under',5),spd:1.2,lcd:top('lcd',50)},
+  mk={cpu1:[],cpu2:[],work1:[],work2:[],wake:[],io:[],irq:[],under:[],spd:[SPD_GOOD],lcd:[]};
+ for(const [k,,u] of IPS){const v=mean3(IP.ser[k]);
+  $('v-'+k).innerHTML=(v==null?'—':'<span style="color:'+col(k)+'">'+(k==='spd'?v.toFixed(3)+' ×':v.toFixed(v<10&&u!=='%'?1:0)+(u==='%'?'%':' '+u))+'</span>')+'<div class="small" style="font-weight:400">'+(IP.sub[k]||'')+'</div>';
+  chart('c-'+k,[IP.ser[k]],hi[k],mk[k],col(k))}
+ axis('ax-ip');
+ $('ipod-note').textContent='CPU usage is the instructions a processor ran over what it could run (a halted processor uses none; the firmware\'s wait loops count as busy). Work (the big number) leaves out the wait loops, which the emulator skips; asleep is time the processor was halted. CPU 1 sends CPU 2 messages (the player\'s work, the decoding of the song) and can wake it; the sound wakes it too. Sound underruns are the times the firmware found no sound ready and sent silence (a click or a gap). Emulator speed is iPod time over real time: 1× keeps up; below '+SPD_GOOD+' the emulation is falling behind. Storage is the disk commands the firmware issues.'},1000);
+async function loop(){for(;;){try{const r=await fetch('/state?wait=1&since='+last+'&ver='+(state.ver??''));const tx=await r.text();netBytes(tx.length);const s=JSON.parse(tx);
+  if(s.px){draw(s.px);last=s.screen}render(s)}catch(e){$('status').textContent='reconnecting…';if(window.onLoopError)window.onLoopError(e);
+  last='';await new Promise(r=>setTimeout(r,800))}}}
+loop();
+</script></body></html>

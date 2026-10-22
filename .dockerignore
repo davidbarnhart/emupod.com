@@ -1,0 +1,5 @@
+rust/target
+work
+.git
+*.img
+*.ipsw

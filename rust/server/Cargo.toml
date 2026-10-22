@@ -1,0 +1,21 @@
+[package]
+name = "emupod-server"
+version = "0.1.0"
+edition = "2021"
+description = "emupod's self-hosted server as one program: the iPod emulator (pp5002) behind the web page you open on your phone"
+license = "MIT"
+
+[[bin]]
+name = "emupod"
+path = "src/main.rs"
+
+[dependencies]
+pp5002 = { path = "../pp5002" }
+tiny_http = "0.12"
+serde_json = "1"
+flate2 = "1"
+sha1_smol = "1"
+base64 = "0.22"
+# flashpod's card library, the same rev the offline app uses (rust/flashpod-wasm)
+flashpod-core = { git = "https://github.com/davidbarnhart/flashpod", rev = "4b62594" }
+ureq = "2"

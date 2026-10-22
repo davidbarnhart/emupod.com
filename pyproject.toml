@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "emupod"
+version = "0.1.0"
+description = "A software emulator of the 1st/2nd-generation Apple iPod (PortalPlayer PP5002), served to a browser"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "David Barnhart" }]
+keywords = ["ipod", "emulator", "portalplayer", "pp5002", "arm7tdmi", "retro"]
+dependencies = [
+    "pillow>=9.0",
+    "flashpod @ git+https://github.com/davidbarnhart/flashpod.git@v0.5.2",
+]
+
+[project.scripts]
+emupod = "emupod.cli:main"
+
+[project.optional-dependencies]
+audio = ["sounddevice>=0.4"]
+dev = ["pytest>=7"]
+
+[tool.maturin]
+manifest-path = "rust/pybind/Cargo.toml"
+module-name = "emupod.emupod_rs"
+python-source = "."
+include = ["emupod/clock_glyphs.json", "emupod/offline/**/*", "emupod/site/**/*"]

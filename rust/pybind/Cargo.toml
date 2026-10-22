@@ -1,0 +1,15 @@
+[package]
+name = "emupod-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Python binding of the pp5002 machine: emupod's Rust core (see emupod/emu_rs.py)"
+license = "MIT"
+
+[lib]
+name = "emupod_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pp5002 = { path = "../pp5002" }
+armcore = { path = "../armcore" }
+pyo3 = { version = "0.26", features = ["extension-module", "abi3-py39"] }

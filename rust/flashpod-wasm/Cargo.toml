@@ -1,0 +1,15 @@
+[package]
+name = "flashpod-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "flashpod's card library (flashpod-core, Rust) as a WebAssembly module behind a plain C interface, for emupod's offline app"
+license = "MIT"
+
+[lib]
+name = "flashpod_wasm"
+crate-type = ["cdylib"]
+
+[dependencies]
+# flashpod's published library, pinned to a rev of its main (the Rust port, with the JSON command API)
+flashpod-core = { git = "https://github.com/davidbarnhart/flashpod", rev = "4b62594" }
+serde_json = { version = "1", features = ["preserve_order"] }

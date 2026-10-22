@@ -1,0 +1,12 @@
+[package]
+name = "armcore"
+version = "0.1.0"
+edition = "2021"
+description = "An ARM7TDMI (ARMv4T) interpreter: the processor core of emupod's PP5002"
+license = "MIT"
+
+[dependencies]
+
+[features]
+# instruction-mix statistics (a slower build, for deciding what to optimise): `armcore::stats`
+stats = []

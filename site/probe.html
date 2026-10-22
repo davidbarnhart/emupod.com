@@ -1,0 +1,131 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>emupod probe</title>
+<style>
+:root{--bg:#e9e9ec;--fg:#1c1c1e;--mute:#6c6c72;--card:#fff;--line:#d4d4d8;--acc:#0a66c2;--ok:#2e9e4f;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--fg:#ececee;--mute:#9a9aa0;--card:#1f1f23;--line:#34343a;--acc:#5ea3ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px 40px}
+h1{font-size:20px;margin:.2em 0}h2{font-size:15px;margin:0 0 6px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
+.btn{font:inherit;padding:10px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--fg);margin:4px 6px 4px 0}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+pre{white-space:pre-wrap;word-break:break-word;font:12px/1.45 ui-monospace,Menlo,monospace;margin:6px 0 0}
+.mute{color:var(--mute);font-size:13px}.y{color:var(--ok)}.n{color:var(--bad)}
+</style></head><body>
+<h1>emupod probe</h1>
+<div class="mute">What this browser lets the app do with files. Nothing is uploaded except the results below, to the server this page came from. Run it in Safari and in Chrome, and from the Home Screen icon if you have one.</div>
+
+<div class="box"><h2>1. This browser</h2><pre id="caps">…</pre></div>
+
+<div class="box"><h2>2. A folder</h2>
+<div class="mute">Choose a folder that has a few songs in it (in Files, iCloud Drive or another provider).</div>
+<button class="btn pri" id="dir">Choose a folder…</button><input type="file" id="dirin" webkitdirectory hidden>
+<pre id="dirout"></pre></div>
+
+<div class="box"><h2>3. Files</h2>
+<div class="mute">Choose several songs, and if you like an .ipsw too. It reads a few pieces of the biggest one to see how fast the phone can get at its data (a file that lives only in iCloud has to download first).</div>
+<button class="btn pri" id="files">Choose files…</button><input type="file" id="filein" multiple hidden>
+<pre id="fileout"></pre></div>
+
+<div class="box"><h2>4. Remembering</h2>
+<div class="mute">After step 2 or 3 on a browser with a folder picker: reload this page, then tap the button to see whether the folder is still allowed.</div>
+<button class="btn" id="recall">Is the last folder still allowed?</button><pre id="recallout"></pre></div>
+
+<div class="box"><h2>Results</h2>
+<button class="btn pri" id="send">Send results</button><button class="btn" id="copy">Copy</button>
+<div class="mute" id="sent"></div></div>
+
+<script>
+const $=id=>document.getElementById(id), R={ua:navigator.userAgent,t:new Date().toISOString()};
+const yn=v=>v?'<span class="y">yes</span>':'<span class="n">no</span>';
+const mb=n=>n>=1e9?(n/1e9).toFixed(2)+' GB':(n/1e6).toFixed(1)+' MB';
+function show(id,lines){$(id).innerHTML=lines.join('\n')}
+
+// 1. capabilities
+(async()=>{
+  const c={};
+  c.secure=isSecureContext; c.standalone=!!(navigator.standalone||matchMedia('(display-mode: standalone)').matches);
+  c.showDirectoryPicker=typeof window.showDirectoryPicker==='function'; c.showOpenFilePicker=typeof window.showOpenFilePicker==='function';
+  c.webkitdirectory='webkitdirectory' in HTMLInputElement.prototype;
+  c.opfs=!!(navigator.storage&&navigator.storage.getDirectory);
+  c.crossOriginIsolated=!!self.crossOriginIsolated; c.sharedArrayBuffer=typeof SharedArrayBuffer==='function';
+  c.wasm=typeof WebAssembly==='object'; c.decompressionStream=typeof DecompressionStream==='function';
+  c.mediaSession='mediaSession' in navigator; c.serviceWorker='serviceWorker' in navigator; c.indexedDB=!!window.indexedDB;
+  try{c.persisted=navigator.storage.persisted?await navigator.storage.persisted():null}catch(e){c.persisted='err'}
+  try{c.persistGranted=navigator.storage.persist?await navigator.storage.persist():null}catch(e){c.persistGranted='err'}
+  try{const q=await navigator.storage.estimate();c.quotaMB=Math.round(q.quota/1e6);c.usageMB=Math.round(q.usage/1e6)}catch(e){}
+  // can a Worker get a synchronous file handle (what the iPod and the card manager use)?
+  c.syncHandle=await new Promise(res=>{try{
+    const w=new Worker(URL.createObjectURL(new Blob([`(async()=>{try{const r=await navigator.storage.getDirectory();const f=await r.getFileHandle('probe.tmp',{create:true});const h=await f.createSyncAccessHandle();h.write(new Uint8Array(8));h.flush();h.close();await r.removeEntry('probe.tmp');postMessage('ok')}catch(e){postMessage('no: '+e.name)}})()`],{type:'text/javascript'})));
+    w.onmessage=e=>res(e.data);w.onerror=()=>res('worker error');setTimeout(()=>res('timeout'),5000)}catch(e){res('no: '+e.name)}});
+  R.caps=c;
+  show('caps',['secure context: '+yn(c.secure),'Home Screen app: '+yn(c.standalone),
+   'folder picker (showDirectoryPicker): '+yn(c.showDirectoryPicker),'file picker (showOpenFilePicker): '+yn(c.showOpenFilePicker),
+   'folder choice in a file input (webkitdirectory): '+yn(c.webkitdirectory),
+   'private file storage (OPFS): '+yn(c.opfs)+', sync handle in a Worker: '+(c.syncHandle==='ok'?yn(true):'<span class="n">'+c.syncHandle+'</span>'),
+   'storage kept (persisted): '+c.persisted+', asked to keep: '+c.persistGranted+(c.quotaMB?'\nstorage: '+c.usageMB+' MB used of about '+c.quotaMB+' MB':''),
+   'SharedArrayBuffer: '+yn(c.sharedArrayBuffer)+', cross-origin isolated: '+yn(c.crossOriginIsolated),
+   'WebAssembly: '+yn(c.wasm)+', gzip streams: '+yn(c.decompressionStream)+', lock screen controls: '+yn(c.mediaSession)+', service worker: '+yn(c.serviceWorker),
+   '',navigator.userAgent]);
+  send(true);
+})();
+
+// reading helpers
+async function timeRead(file,label,start,len){const t=performance.now();try{const b=await file.slice(start,start+len).arrayBuffer();const ms=performance.now()-t;
+  return label+': '+b.byteLength+' bytes in '+ms.toFixed(0)+' ms ('+(b.byteLength/1e6/(ms/1000)).toFixed(1)+' MB/s)'}catch(e){return label+': FAILED '+e.name+' '+e.message}}
+const summary=files=>{const ext={};let tot=0;for(const f of files){const e=(f.name.split('.').pop()||'').toLowerCase();ext[e]=(ext[e]||0)+1;tot+=f.size}return{count:files.length,bytes:tot,ext}};
+
+// 2. a folder
+async function listDir(h,prefix,out,depth){for await(const [n,e] of h.entries()){if(out.length>5000)return;
+  if(e.kind==='file')out.push({name:prefix+n,h:e});else if(depth<4)await listDir(e,prefix+n+'/',out,depth+1)}}
+async function remember(h){try{const db=await new Promise((ok,no)=>{const r=indexedDB.open('probe',1);r.onupgradeneeded=()=>r.result.createObjectStore('h');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+  await new Promise((ok,no)=>{const t=db.transaction('h','readwrite');t.objectStore('h').put(h,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)});return 'handle stored in IndexedDB'}catch(e){return 'could not store the handle: '+e.name}}
+$('dir').onclick=async()=>{
+  const lines=[],t0=performance.now();R.dir={};
+  try{
+    if(window.showDirectoryPicker){
+      const h=await window.showDirectoryPicker();const out=[];await listDir(h,'',out,0);
+      const files=[];for(const o of out.slice(0,400))files.push(await o.h.getFile());
+      const s=summary(files);R.dir={api:'showDirectoryPicker',name:h.name,listed:out.length,...s,enumerateMs:Math.round(performance.now()-t0)};
+      lines.push('picked "'+h.name+'" with showDirectoryPicker','files found: '+out.length+' (sizes read for '+files.length+'): '+mb(s.bytes),'types: '+JSON.stringify(s.ext),'took '+R.dir.enumerateMs+' ms');
+      const big=files.slice().sort((a,b)=>b.size-a.size)[0];if(big){lines.push(await timeRead(big,'first 64 KB of the largest ('+big.name+', '+mb(big.size)+')',0,65536));R.dir.firstRead=lines[lines.length-1]}
+      lines.push(await remember(h));R.dir.remember=lines[lines.length-1];
+    } else {
+      const files=await new Promise(res=>{const i=$('dirin');i.value='';i.onchange=()=>res([...i.files]);i.oncancel=()=>res(null);i.click()});
+      if(!files){lines.push('cancelled')}else if(!files.length){lines.push('the browser returned no files for the folder');R.dir={api:'webkitdirectory',count:0}}
+      else{const s=summary(files);R.dir={api:'webkitdirectory',...s,withPaths:files.filter(f=>f.webkitRelativePath).length,sample:files.slice(0,3).map(f=>f.webkitRelativePath||f.name),ms:Math.round(performance.now()-t0)};
+        lines.push('folder through a file input','files returned: '+s.count+' ('+mb(s.bytes)+')','with folder paths: '+R.dir.withPaths+'  e.g. '+R.dir.sample.join(', '),'types: '+JSON.stringify(s.ext),'took '+R.dir.ms+' ms');
+        const big=files.slice().sort((a,b)=>b.size-a.size)[0];lines.push(await timeRead(big,'first 64 KB of the largest ('+big.name+', '+mb(big.size)+')',0,65536));R.dir.firstRead=lines[lines.length-1]}
+    }
+  }catch(e){lines.push('error: '+e.name+' '+e.message);R.dir.error=e.name+' '+e.message}
+  show('dirout',lines)};
+
+// 3. files
+$('files').onclick=async()=>{
+  const lines=[];R.files={};
+  const pick=window.showOpenFilePicker?async()=>{const hs=await window.showOpenFilePicker({multiple:true});return Promise.all(hs.map(h=>h.getFile()))}
+    :()=>new Promise(res=>{const i=$('filein');i.value='';i.onchange=()=>res([...i.files]);i.oncancel=()=>res(null);i.click()});
+  try{const files=await pick();if(!files||!files.length){show('fileout',['nothing chosen']);return}
+    const s=summary(files);R.files={api:window.showOpenFilePicker?'showOpenFilePicker':'input',...s};
+    lines.push('files: '+s.count+', '+mb(s.bytes)+' in all','types: '+JSON.stringify(s.ext));
+    const big=files.slice().sort((a,b)=>b.size-a.size)[0];lines.push('biggest: '+big.name+' ('+mb(big.size)+')');
+    const r=[await timeRead(big,'first 64 KB',0,65536),await timeRead(big,'last 16 KB',Math.max(0,big.size-16384),16384),await timeRead(big,'20 MB from the middle',Math.floor(big.size/2),20e6),await timeRead(big,'the same 20 MB again',Math.floor(big.size/2),20e6)];
+    R.files.reads=r;lines.push(...r)}
+  catch(e){lines.push('error: '+e.name+' '+e.message);R.files.error=e.name+' '+e.message}
+  show('fileout',lines)};
+
+// 4. remembering
+$('recall').onclick=async()=>{try{
+  const db=await new Promise((ok,no)=>{const r=indexedDB.open('probe',1);r.onupgradeneeded=()=>r.result.createObjectStore('h');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+  const h=await new Promise((ok,no)=>{const q=db.transaction('h').objectStore('h').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)});
+  if(!h){R.recall='no handle stored';show('recallout',[R.recall]);return}
+  const p=await h.queryPermission({mode:'read'});R.recall='stored "'+h.name+'", permission: '+p;
+  let more='';if(p!=='granted'){try{more='\nasking again: '+await h.requestPermission({mode:'read'})}catch(e){more='\nasking again failed: '+e.name}}
+  show('recallout',[R.recall+more])}catch(e){R.recall='error '+e.name;show('recallout',['error: '+e.name+' '+e.message])}};
+
+// results
+async function send(auto){try{await fetch('../api/diag',{method:'POST',body:JSON.stringify({reason:'probe'+(auto?' (on load)':''),probe:R})});$('sent').textContent=auto?'':'Sent. Thank you.'}catch(e){$('sent').textContent='Could not reach the server: '+e.message}}
+$('send').onclick=()=>send(false);
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(R,null,1));$('sent').textContent='Copied.'}catch(e){$('sent').textContent='Could not copy; use Send.'}};
+</script></body></html>

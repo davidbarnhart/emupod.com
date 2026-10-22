@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Run your own emupod</title>
+<style>
+:root{color-scheme:light;--bg:#fff;--fg:#000;--mute:#6b6b70;--card:#f2f2f4;--line:#d9d9de;--accent:#0a63d1;--code:#1c1c1e;--codefg:#f2f2f4}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,system-ui,"Segoe UI",sans-serif}
+main{max-width:660px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:28px;margin:.2em 0 .3em}h2{font-size:19px;margin:1.6em 0 .4em}p{margin:.5em 0}a{color:var(--accent)}
+.lead{font-size:18px;color:var(--mute)}
+pre{background:var(--code);color:var(--codefg);border-radius:10px;padding:14px 16px;overflow-x:auto;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+pre.oneline{font-size:clamp(11px,3vw,14px);padding-left:12px;padding-right:12px}
+.cmd{display:grid;grid-template-columns:min(14.4em,40%) 1fr;gap:6px 12px;align-items:baseline;width:90%;margin:.2em auto 1.2em;padding:12px 14px;font-size:15px;background:#e6f1fd;border:3px solid #2f6db5;border-radius:14px}   /* the left column twice its natural width, at most 40% on a phone */
+.cmd code{font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;white-space:nowrap;font-weight:600}.cmd code.url{white-space:normal;overflow-wrap:anywhere}.cmd span{color:var(--mute)}
+.note{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:1em 0}
+.back{display:inline-block;margin-bottom:8px}
+</style></head><body><main>
+<script>if(self!==top){document.write('<style>.back{display:none}</style>')}</script>
+<a class="back" href="./">&larr; Back to the demo</a>
+<h1>Run your own emupod</h1>
+<p class="lead">This demo plays one song on a built-in card. Your own copy runs on a small computer at home, and you use the iPod from your phone's browser, with your own music.</p>
+
+<h2>What you need</h2>
+<p>A Raspberry Pi 4 or 5 (running Raspberry Pi OS or another 64-bit operating system) or any 64-bit Linux computer on your home network. emupod is one program: nothing else to install first (<code>curl</code>, which Raspberry Pi OS already has, fetches it). Your music files on it or on a share. A phone or any browser to use it with.</p>
+
+<h2>Install: one command</h2>
+<pre class="oneline">curl -fsSL https://emupod.com/install.sh | sh</pre>
+<div class="cmd" aria-label="What each part of the command does">
+<code>curl</code><span>&larr; the command-line download tool</span>
+<code>-f</code><span>&larr; fail if the server answers with an error, so an error page is never run as a script</span>
+<code>-s</code><span>&larr; silent: no progress bar</span>
+<code>-S</code><span>&larr; but still show an error message if something goes wrong</span>
+<code>-L</code><span>&larr; follow redirects to wherever the file really lives</span>
+<code class="url">https://<wbr>emupod.com/<wbr>install.sh</code><span>&larr; the install script</span>
+<code>|</code><span>&larr; the pipe: hands what curl downloaded straight to the next command</span>
+<code>sh</code><span>&larr; the shell: runs the install script it receives</span>
+</div>
+<p>The script is short: <a href="install.sh">read it first</a>. It checks your machine, downloads the emupod release for it and verifies the checksum, installs into <code>~/emupod</code>, asks where your cards and music live, can start emupod at boot, and prints the address to open on your phone (for example <code>http://192.168.1.20:8797/</code>).</p>
+<p>The first start makes your first card and downloads the iPod firmware for you (a one-time download of a few megabytes). Nothing is ever written to an iPod or a card reader.</p>
+
+<h2>Or with Docker</h2>
+<pre>git clone https://github.com/davidbarnhart/emupod.com
+cd emupod.com
+docker build -t emupod .
+docker run -p 8797:8797 -v emupod-cards:/cards emupod</pre>
+
+<div class="note"><strong>How tested it is:</strong> installed and run on 64-bit Debian on x86-64. The Raspberry Pi (ARM) release is built from the same source but has not yet been run on a real Pi.</div>
+
+<h2>Uninstall</h2>
+<p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose.</p>
+
+<h2>What stays on your machine</h2>
+<p>Your music, your cards and your settings never leave your own computer. The demo on this site runs entirely in your browser.</p>
+
+<p style="color:var(--mute);margin-top:2em">Heading font: Sorts Mill Goudy (SIL Open Font License, <a href="OFL-SortsMillGoudy.txt">licence</a>). Button font: ChicagoFLF, by Robin Casady. emupod is open source (<a href="https://github.com/davidbarnhart/emupod.com">source</a>). It runs the iPod's real, unmodified software on an emulated PortalPlayer PP5002 chip.</p>
+</main></body></html>

@@ -1,0 +1,57 @@
+# Builds emupod as one static program for 64-bit Intel/AMD and 64-bit ARM (Raspberry Pi), and attaches both, with their checksums, to a
+# GitHub release when a version tag (v0.1.0, ...) is pushed. installer/install.sh downloads emupod-linux-<arch> and checks it against
+# SHA256SUMS. NOT YET RUN: the first run is the test (the same build was made by hand on 2026-10-21, clang for the C in ring, rust-lld).
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x86_64 }
+          - { runner: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang lld llvm
+          rustup target add ${{ matrix.arch }}-unknown-linux-musl
+      - name: build
+        working-directory: rust
+        run: |
+          T=${{ matrix.arch }}-unknown-linux-musl
+          V=$(echo "$T" | tr 'a-z-' 'A-Z_')
+          export CC_${T//-/_}=clang CFLAGS_${T//-/_}="--target=${{ matrix.arch }}-linux-musl" AR_${T//-/_}=llvm-ar
+          export CARGO_TARGET_${V}_LINKER=rust-lld
+          cargo build --release -p emupod-server --target "$T"
+          mkdir -p ../dist && cp "target/$T/release/emupod" "../dist/emupod-linux-${{ matrix.arch }}"
+          ../dist/emupod-linux-${{ matrix.arch }} --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emupod-${{ matrix.arch }}
+          path: dist/emupod-linux-*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: emupod-*
+          merge-multiple: true
+          path: dist
+      - name: checksums
+        run: cd dist && sha256sum emupod-linux-* > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/emupod-linux-*
+            dist/SHA256SUMS
