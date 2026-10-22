@@ -78,7 +78,7 @@ ask "Folder for your iPod cards (card images; the built-in card, Rainbow Road, i
 # the music folder: look for folders holding songs first (home, ~/Music, /media, /mnt, /srv; at most 15 s, so a big share cannot hang
 # this), then offer them by number
 step "Your music"
-note "looking for music on this machine..."
+note "looking for music on this machine (you can change the folder later, on the Cards page)..."
 FOUND="$( (timeout 15 find "$HOME" /media /mnt /srv -maxdepth 6 -type f \( -iname '*.mp3' -o -iname '*.m4a' -o -iname '*.flac' -o -iname '*.aac' \
           -o -iname '*.wav' -o -iname '*.aif' -o -iname '*.aiff' -o -iname '*.m4b' \) -not -path '*/.*' 2>/dev/null || true) \
     | awk -v home="$HOME" '{ p = $0; root = (index(p, home "/") == 1) ? home : "/" substr(p, 2, index(substr(p, 2), "/") - 1)

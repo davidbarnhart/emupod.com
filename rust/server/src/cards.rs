@@ -190,7 +190,8 @@ fn sha256_hex(b: &[u8]) -> String {
 
 pub struct Store {
     pub root: PathBuf,
-    pub music_root: Option<PathBuf>,
+    /// the folder songs are added from on this machine: the page's choice (.settings.json in the card folder), else --music-root
+    pub music_root: Mutex<Option<PathBuf>>,
     pub firmware_dirs: Vec<PathBuf>,
     catalog: Vec<Value>,
     base_url: String,
@@ -208,7 +209,9 @@ impl Store {
             .ok().and_then(|v| v["base_url"].as_str().map(|s| s.to_string())).unwrap_or_default();
         Ok(Arc::new(Store {
             root: fs::canonicalize(root)?,
-            music_root: music_root.and_then(|m| fs::canonicalize(m).ok()),
+            music_root: Mutex::new(
+                Self::saved_music_root(Path::new(root)).or_else(|| music_root.and_then(|m| fs::canonicalize(m).ok())),
+            ),
             firmware_dirs: firmware_dirs.iter().filter_map(|d| fs::canonicalize(d).ok()).collect(),
             catalog: flashpod_core::firmware::catalog(),
             base_url,
@@ -289,7 +292,7 @@ impl Store {
         let b = self.booted.lock().unwrap().clone();
         json!({"root": self.root, "cards": cards, "flashpod": {"api": "1.0", "rust": true},
                "booted": b.as_ref().map(|x| x.0.clone()), "booted_keep": b.as_ref().map(|x| x.1),
-               "music_root": self.music_root, "firmware": self.firmware_choices(), "can_resize": true, "can_burn": true})
+               "music_root": *self.music_root.lock().unwrap(), "can_pick_music": true, "firmware": self.firmware_choices(), "can_resize": true, "can_burn": true})
     }
     /// flashpod's inspect, saved beside the image. A card the iPod holds is read as it is (a look never writes).
     pub fn scan(&self, name: &str) -> Result<Value, ApiErr> {
@@ -397,16 +400,16 @@ impl Store {
 
     // ---- music and uploads
     fn music_path(&self, rel: &str) -> Result<PathBuf, ApiErr> {
-        let Some(root) = &self.music_root else { return card_err("no music folder was given to the web app (--music-root)") };
+        let Some(root) = self.music_root.lock().unwrap().clone() else { return card_err("no music folder is set: choose one on the Cards page") };
         let p = fs::canonicalize(root.join(rel.trim_start_matches('/'))).map_err(|_| ApiErr::Card("no such folder".into()))?;
-        if !p.starts_with(root) {
+        if !p.starts_with(&root) {
             return card_err("outside the music folder");
         }
         Ok(p)
     }
     pub fn music(&self, rel: &str) -> Result<Value, ApiErr> {
         let base = self.music_path(rel)?;
-        let root = self.music_root.clone().unwrap_or_default();
+        let root = self.music_root.lock().unwrap().clone().unwrap_or_default();
         let (mut dirs, mut files) = (vec![], vec![]);
         for e in fs::read_dir(&base)?.filter_map(|e| e.ok()) {
             let n = e.file_name().to_string_lossy().into_owned();
@@ -488,6 +491,51 @@ impl Store {
             return card_err("no songs in what was chosen");
         }
         Ok(files)
+    }
+
+    // ---- the music folder, chosen on the page
+    fn saved_music_root(root: &Path) -> Option<PathBuf> {
+        let v: Value = serde_json::from_str(&fs::read_to_string(root.join(".settings.json")).ok()?).ok()?;
+        let p = PathBuf::from(v["music_root"].as_str()?);
+        p.is_dir().then_some(p)
+    }
+    /// Set (or, with None, clear) the music folder, and keep the choice for the next start.
+    pub fn set_music_root(&self, p: Option<&str>) -> Result<Value, ApiErr> {
+        let p = match p.filter(|s| !s.is_empty()) {
+            Some(s) => Some(fs::canonicalize(s).ok().filter(|x| x.is_dir()).ok_or_else(|| ApiErr::Card(format!("no such folder: {s}")))?),
+            None => None,
+        };
+        let mut v: Value = fs::read_to_string(self.root.join(".settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
+        if !v.is_object() {
+            v = json!({});
+        }
+        v["music_root"] = json!(p);
+        let tmp = self.root.join(".settings.json.tmp");
+        fs::write(&tmp, v.to_string())?;
+        fs::rename(tmp, self.root.join(".settings.json"))?;
+        *self.music_root.lock().unwrap() = p;
+        Ok(self.list())
+    }
+    /// The folders under `path` on this machine, for choosing the music folder (folder names and song counts only, never file
+    /// contents); with no path, the usual places: home, /media, /mnt, /srv.
+    pub fn folders(&self, path: &str) -> Result<Value, ApiErr> {
+        let count = |d: &Path| fs::read_dir(d).map(|r| r.filter_map(|e| e.ok()).filter(|e| is_audio(&e.file_name().to_string_lossy())).count()).unwrap_or(0);
+        if path.is_empty() {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+            let roots: Vec<Value> = [home.as_str(), "/media", "/mnt", "/srv"].iter().map(PathBuf::from).filter(|p| p.is_dir())
+                .map(|p| json!({"name": p.display().to_string(), "path": p, "songs": count(&p)})).collect();
+            return Ok(json!({"path": "", "parent": null, "dirs": roots, "songs": 0}));
+        }
+        let p = fs::canonicalize(path).map_err(|_| ApiErr::Card(format!("no such folder: {path}")))?;
+        if !p.is_dir() {
+            return card_err(format!("not a folder: {path}"));
+        }
+        let mut dirs: Vec<(String, PathBuf)> = fs::read_dir(&p)?.filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir() && !e.file_name().to_string_lossy().starts_with('.'))
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
+        dirs.sort_by_key(|d| d.0.to_lowercase());
+        let dirs: Vec<Value> = dirs.into_iter().map(|(n, d)| json!({"name": n, "path": d, "songs": count(&d)})).collect();
+        Ok(json!({"path": p, "parent": p.parent().map(|x| x.to_path_buf()), "dirs": dirs, "songs": count(&p)}))
     }
 
     // ---- operations
@@ -988,6 +1036,8 @@ pub fn api(store: &Arc<Store>, method: &str, path: &str, q: &HashMap<String, Str
         ("GET", ["cards", n]) => store.summary(n),
         ("GET", ["cards", n, "tracks"]) => store.tracks(n),
         ("GET", ["cards", n, "burn"]) => store.burn(n),
+        ("GET", ["folders"]) => store.folders(&pct_decode(q.get("path").map(|s| s.as_str()).unwrap_or(""))),
+        ("POST", ["music-root"]) => store.set_music_root(body["path"].as_str()),
         ("GET", ["music"]) => store.music(&pct_decode(q.get("path").map(|s| s.as_str()).unwrap_or(""))),
         ("POST", ["boot"]) => {
             let card = body["card"].as_str().map(|s| s.to_string());

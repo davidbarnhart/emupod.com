@@ -268,6 +268,10 @@ fn handle(mut req: Request, shared: Arc<Shared>, store: Arc<Store>, burner: Arc<
             send_json(req, 200, &burn::disks(size))
         }
         (Method::Get, "/api/burn/status") => send_json(req, 200, &burner.status()),
+        (Method::Get, "/api/stats/history") => {
+            let snaps: Vec<Value> = shared.hist.lock().unwrap().iter().cloned().collect();
+            send_json(req, 200, &json!({"snaps": snaps}))
+        }
         (Method::Post, "/api/burn") => {
             let mut s = String::new();
             let _ = req.as_reader().take(1 << 16).read_to_string(&mut s);
@@ -380,6 +384,23 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             shared.cmds.lock().unwrap().push_back(json!({"do": "quit"}));
+        });
+    }
+    {
+        // the statistics history: one snapshot a second, five minutes kept
+        let shared = shared.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let snap = shared.st.lock().unwrap().ipod.clone();
+            if let Some(s) = snap {
+                let mut h = shared.hist.lock().unwrap();
+                if h.back().map(|b| b["wall"] != s["wall"]).unwrap_or(true) {
+                    h.push_back(s);
+                    while h.len() > 300 {
+                        h.pop_front();
+                    }
+                }
+            }
         });
     }
     let addr = format!("{}:{}", o.host, o.port);

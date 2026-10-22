@@ -550,9 +550,9 @@ $('ipodstats').innerHTML=IPS.map(([k,l])=>'<div class="stat"><div class="sl">'+l
 const IP={snap:null,prev:null,ser:{cpu1:[],cpu2:[],io:[],spd:[],lcd:[],rd:[],wr:[],kr:[],kw:[],mips1:[],mips2:[],host:[],tk:[],
  work1:[],work2:[],wait1:[],wait2:[],nap1:[],nap2:[],wake:[],sigs:[],sigt:[],cmds:[],irq:[],fiq:[],oirq:[],under:[]},sub:{}};
 const SPD_GOOD=.99,SPD_FAIR=.95;
-setInterval(()=>{const s=NET.ipod;if(!s){IP.snap=null;return}
- const p=IP.prev;IP.prev=s;if(!p||s.wall===p.wall){return}
- const dus=s.now_us-p.now_us,dw=(s.wall-p.wall);if(dus<=0||dw<=0)return;
+// one step of the charts, from two snapshots of the counters: the live ones each second, or the server's history when the page opens
+function ipFeed(p,s){
+ const dus=s.now_us-p.now_us,dw=(s.wall-p.wall);if(dus<=0||dw<=0)return false;
  const d=k=>s[k]-p[k],push=(k,v)=>{IP.ser[k].push(v);if(IP.ser[k].length>HIST)IP.ser[k].shift()};
  const c1=d('cpu_instr')/s.cpu_ipus/dus*100,c2=d('cop_instr')/s.cop_ipus/dus*100,iops=(d('ata_reads')+d('ata_writes'))/ (dus/1e6);
  push('cpu1',Math.min(100,c1));push('cpu2',Math.min(100,c2));push('io',iops);push('spd',dus/1e6/dw);push('lcd',d('lcd_writes')/(dus/1e6));
@@ -566,7 +566,14 @@ setInterval(()=>{const s=NET.ipod;if(!s){IP.snap=null;return}
  push('cmds',(d('ata_cmds')||0)/sec);
  push('irq',((d('irqs')||0)+d('audio_fiqs'))/sec);push('fiq',d('audio_fiqs')/sec);push('oirq',Math.max(0,(d('irqs')||0)-d('ticks'))/sec);
  push('under',s.fw_underruns>=0&&p.fw_underruns>=0?Math.max(0,d('fw_underruns'))/sec:null);
- if(d('ata_reads')>0)IP.lastRead=Date.now();
+ if(d('ata_reads')>0)IP.lastRead=s.wall*1000;
+ return true}
+// the server keeps the last five minutes of counters (rust/server): a page that opens or reloads starts with them, not with empty charts
+if(!window.OFFLINE)fetch('/api/stats/history',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(h=>{const a=h&&h.snaps;if(!a||a.length<2||IP.prev)return;
+ for(let i=1;i<a.length;i++)ipFeed(a[i-1],a[i]);IP.prev=a[a.length-1]}).catch(()=>{});
+setInterval(()=>{const s=NET.ipod;if(!s){IP.snap=null;return}
+ const p=IP.prev;IP.prev=s;if(!p||s.wall===p.wall){return}
+ if(!ipFeed(p,s))return;
  const ago=()=>{if(!IP.lastRead)return 'before this page opened';const t=(Date.now()-IP.lastRead)/1000;return t<2?'just now':t<90?Math.round(t)+' s ago':Math.round(t/60)+' min ago'};
  const mb=sec=>(sec*.5/1024).toFixed(sec*.5/1024<10?1:0);
  const ioSub=x=>x.ata_reads+' reads, '+mb(x.ata_sectors_read)+' MB since boot<br>'+x.ata_writes+' writes, '+mb(x.ata_sectors_written)+' MB'+(x.ata_reads?'<br>last read '+ago():'');

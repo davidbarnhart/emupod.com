@@ -141,6 +141,8 @@ pub struct Shared {
     pub audio: Audio,
     /// the sound on this machine's own output ("audio on host")
     pub host: crate::host_audio::HostAudio,
+    /// the iPod's counters once a second, the last five minutes: a page that opens (or reloads) draws its charts from them
+    pub hist: Mutex<VecDeque<Value>>,
 }
 
 impl Shared {
@@ -173,6 +175,7 @@ impl Shared {
             cmds: Mutex::new(VecDeque::new()),
             audio: Audio::default(),
             host,
+            hist: Mutex::new(VecDeque::new()),
         })
     }
 

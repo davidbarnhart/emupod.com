@@ -95,6 +95,31 @@ function fwName(c){const s=c.scan,f=s&&s.firmware;if(!s)return 'not scanned';if(
  return 'custom firmware'}
 
 // ---------------------------------------------------------------- the library
+// ---- the music folder on the host computer (where "Add from host computer" finds songs), chosen by browsing its folders
+let MP={open:false,data:null,error:''};
+function musicBox(){if(!S.can_pick_music)return '';
+ let h='<div class="box"><h2>Music folder</h2><div>'+(S.music_root?'<code style="overflow-wrap:anywhere;white-space:normal">'+esc(S.music_root)+'</code>':'<span class="mute">Not set.</span>')+
+  '</div><div class="mute small">Where “Add from host computer” finds songs, on the computer emupod runs on.</div>';
+ if(!MP.open)return h+'<div class="row"><button class="btn" id="mp-open">Change…</button></div></div>';
+ const d=MP.data;
+ h+='<div class="row" style="align-items:center"><button class="btn" id="mp-up"'+(d&&d.parent?'':' disabled')+'>‹ Up</button>'+
+  '<b style="overflow-wrap:anywhere">'+(d&&d.path?esc(d.path):'Places')+'</b>'+(d&&d.path?'<span class="mute small">'+d.songs+' song'+(d.songs===1?'':'s')+' here</span>':'')+'</div>';
+ h+='<div class="list" style="max-height:300px;overflow:auto">'+(!d?'<div class="mute">Loading…</div>':!d.dirs.length?'<div class="mute">No folders here.</div>':
+  d.dirs.map(x=>'<div class="row" style="margin:0"><a href="#" data-dir="'+esc(x.path)+'" style="flex:1">📁 '+esc(x.name)+'</a>'+
+   (x.songs?'<span class="mute small">'+x.songs+' song'+(x.songs===1?'':'s')+'</span>':'')+'</div>').join(''))+'</div>';
+ h+='<div class="err">'+esc(MP.error)+'</div><div class="row"><button class="btn pri" id="mp-use"'+(d&&d.path?'':' disabled')+'>Use this folder</button>'+
+  '<button class="btn" id="mp-none">No music folder</button><button class="btn" id="mp-cancel">Cancel</button></div></div>';
+ return h}
+async function mpGo(path){MP.error='';try{MP.data=await api('folders?path='+U(path||''))}catch(e){MP.error=e.message}library()}
+function musicWire(){if(!S.can_pick_music)return;
+ const o=$('mp-open');if(o)o.onclick=()=>{MP.open=true;MP.data=null;library();mpGo(S.music_root||'')};
+ if(!MP.open)return;
+ document.querySelectorAll('[data-dir]').forEach(a=>a.onclick=e=>{e.preventDefault();mpGo(a.dataset.dir)});
+ $('mp-up').onclick=()=>{const d=MP.data;if(d&&d.parent)mpGo(d.parent)};
+ $('mp-cancel').onclick=()=>{MP.open=false;library()};
+ const set=async p=>{try{S=await post('music-root',{path:p});MP.open=false;library()}catch(e){MP.error=e.message;library()}};
+ $('mp-use').onclick=()=>set(MP.data.path);
+ $('mp-none').onclick=()=>set(null)}
 function library(){
  const tiles=S.cards.map(c=>{const busy=c.op&&c.op.state==='running';
   return '<a class="tile'+(c.booted?' boot':'')+(busy?' busy':'')+'" href="'+cardsHref(c.name)+'">'+sd(c)+
@@ -108,8 +133,9 @@ function library(){
   '<option value="20">20 GB</option><option value="32">32 GB</option><option value="64">64 GB</option><option value="128">128 GB</option><option value="256">256 GB</option></select>'+
   '<button class="btn pri" id="new-go">Create</button></div><div class="mute">A blank card image; it takes no disk space until written. Then open it to flash firmware. '+
   'Past 128 GB needs large-disk firmware.</div></div>'+
-  '<p class="mute">The card with the green box is the one the iPod boots. Open a card to set it up or to boot it.</p>';
+  '<p class="mute">The card with the green box is the one the iPod boots. Open a card to set it up or to boot it.</p>'+musicBox();
  $('newtile').onclick=()=>{$('newbox').hidden=false;$('new-name').focus()};
+ musicWire();
  $('new-go').onclick=async()=>{const name=$('new-name').value.trim();if(!name)return;
   try{await post('cards/'+U(name)+'/create',{size:Number($('new-size').value)*1e9});nav(cardsHref(name))}catch(e){$('err').textContent=e.message}};
 }
@@ -196,7 +222,7 @@ function setup(){if(editing)return;const c=S.cards.find(x=>x.name===NAME);
     '<h2 style="margin-top:14px">Add songs</h2>'+
     '<div class="row"><button class="btn" data-act="phone"'+off+'>Add from this phone</button>'+
     '<button class="btn" data-act="hostpick"'+(off||(S.music_root?'':' disabled'))+'>Add from host computer</button></div>'+
-    (S.music_root?'':'<div class="mute small">The host computer’s music folder is not set (the web app’s --music-root).</div>')+
+    (S.music_root?'':'<div class="mute small">The host computer’s music folder is not set: choose it under Music folder on the <a href="'+cardsHref()+'">Cards</a> page.</div>')+
     '<div id="hostbox"'+(hostOpen?'':' hidden')+'><div id="music"></div></div>'+
     '<div class="mute" id="upsum" style="margin:8px 0">'+upSummary(c)+'</div>'+
     '<div class="row"><button class="btn pri" data-act="addsongs"'+(!have||UP.busy||busy?' disabled':'')+'>Import Songs To iPod</button>'+
