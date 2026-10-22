@@ -2,7 +2,7 @@
 // answers); here the answers come from the core in a Worker (worker.js). The page's own code is untouched.
 (() => {
   window.OFFLINE = true;
-  const BUILD = '1021-2252-2ade86';                                   // build_offline.py stamps this: which build a phone is running
+  const BUILD = '1021-2255-2ade86';                                   // build_offline.py stamps this: which build a phone is running
   const here = new URL('.', document.currentScript.src).href;
   const W = new Worker(here + 'worker.js', { type: 'module' });
   const GREY4 = [[182, 188, 169], [130, 136, 118], [80, 85, 70], [34, 38, 30]];
