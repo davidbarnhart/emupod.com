@@ -1,6 +1,6 @@
 // The offline app's service worker: keeps the app's files so it opens with no network, answers /silence.wav (the
 // quiet looping track iOS wants playing for the lock screen's buttons), and fetches the lock-screen cover from the page.
-const CACHE = 'emupod-offline-1021-2246-2ade86';          // build_offline.py puts the build's id here: a new build is a new service worker, which replaces the files
+const CACHE = 'emupod-offline-1021-2248-2ade86';          // build_offline.py puts the build's id here: a new build is a new service worker, which replaces the files
 const FILES = ['./', 'index.html', 'cards.html', 'shim.js', 'worker.js', 'store.js', 'ipod_core.js', 'emupod_wasm.wasm',
   'clock_glyphs.json', 'manifest.webmanifest', 'icon.png', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'cardsvc.js', 'cardmgr.js', 'flashpod.js', 'flashpod_wasm.wasm', 'cardshost.js', 'cardsrpc.js'];
 
