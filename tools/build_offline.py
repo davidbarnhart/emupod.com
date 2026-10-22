@@ -88,17 +88,18 @@ def demo_page(page):
     css = ("<style>"
            "@font-face{font-family:'Sorts Mill Goudy';src:url(sortsmillgoudy.woff2) format('woff2');font-weight:400;font-display:block}"
            "@font-face{font-family:'ChicagoFLF';src:url(chicagoflf.ttf) format('truetype');font-weight:400;font-display:block}"
-           ":root{color-scheme:light;--bg:#fff;--fg:#000;--mute:#6c6c72;--card:#f2f2f4;--line:#d4d4d8;--acc:#0a66c2;--ipw:min(calc(100vw - 20px),430px,calc((100dvh - 150px - env(safe-area-inset-top))/1.65))}"
+           ":root{color-scheme:light;--bg:#fff;--fg:#000;--mute:#6c6c72;--card:#f2f2f4;--line:#d4d4d8;--acc:#0a66c2;--chrome:126px;--ipw:min(calc(100vw - 20px),430px,calc((100dvh - var(--chrome) - env(safe-area-inset-top))/1.65))}"
+           "@media (max-height:620px){:root{--chrome:117px}.bar{padding-top:10px!important}}"
            ".ipod{--w:var(--ipw)!important}"                                          # a larger player: the heading and the button row take less room than the page they replaced
            "html.light,html.light body{background:#fff!important;color:#000!important}"
            "html.dark,html.dark body{background:#000!important;color:#ececee!important}"
-           "#brand{width:var(--ipw);height:60px;display:flex;align-items:flex-end;margin:calc(10px + env(safe-area-inset-top)) auto 0;padding-left:calc(var(--ipw) * .07);box-sizing:border-box;text-align:left}"
-           "#brand span{display:inline-block;position:relative;top:10px}"        # its baseline level with the bottom of the Hold switch (measured: 10px above it otherwise)
+           "#brand{width:var(--ipw);height:54px;display:flex;align-items:flex-end;margin:calc(6px + env(safe-area-inset-top)) auto 0;padding-left:calc(var(--ipw) * .07);box-sizing:border-box;text-align:left}"
+           "#brand span{display:inline-block;position:relative;top:4px}"        # its baseline level with the bottom of the Hold switch (measured: 10px above it otherwise)
            "#brand{"
            "color:var(--fg);font:400 52px/1 'Sorts Mill Goudy',Georgia,serif;letter-spacing:-.01em}"   # the iPod's width, left-aligned 7% of the way in
-           ".ipod{margin-top:14px!important}"      # a shadow only below: a player standing on a white table under an overhead light                                                                          # the same gap as between the iPod and the buttons below it
+           ".ipod{margin-top:10px!important}"      # a shadow only below: a player standing on a white table under an overhead light                                                                          # the same gap as between the iPod and the buttons below it
            ".bar{max-width:none!important;padding-left:0!important;padding-right:0!important;justify-content:space-between;color:var(--fg);"
-           "width:calc(var(--ipw) - 20px);padding-top:20px!important}"             # a little inside the iPod's edges, a little lower
+           "width:calc(var(--ipw) - 20px);padding-top:14px!important}"             # a little inside the iPod's edges, a little lower
            ".bar .sp,#status,#devbtn,#cardsbtn{display:none!important}"
            ".bar .pill{background:var(--card);color:var(--fg);box-shadow:0 0 0 1px var(--line) inset;font:400 15px 'ChicagoFLF',Charcoal,sans-serif}"
            ".sheet .btn,.sheet .pill{font-family:'ChicagoFLF',Charcoal,sans-serif!important;font-weight:400!important;font-size:15px!important}"   # the Session sheet's buttons too
