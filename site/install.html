@@ -54,5 +54,8 @@ docker run -p 8797:8797 -v emupod-cards:/cards emupod</pre>
 <p><strong>How:</strong> This emulator and webapp are built primarily with Rust, which allows the code to compile into WebAssembly and run in modern browsers and mobile phones. The earliest version of this leveraged the Unicorn emulator to help approximate the ARM chip inside the iPod. To pack this all into a webapp, however, I reworked the PP5002 emulator into pure Rust and improved things by yelling &ldquo;enhance!&rdquo; repeatedly at my computer monitor in a commanding voice.</p>
 <p>The demo player runs entirely within your browser, with a small virtual &ldquo;card&rdquo; holding the firmware and single music file. The full player is meant to be installed on a small computer like a Raspberry Pi. When installed this way, it exposes a local webapp that you can open on your phone or computer to control the player. Integrate the Raspberry Pi into your home Hi-Fi system and start rocking like it&rsquo;s 2001 again.</p>
 
+<h2>Open source</h2>
+<p>Explore it for yourself: <a href="https://github.com/davidbarnhart/emupod.com">github.com/davidbarnhart/emupod.com</a></p>
+
 <p style="color:var(--mute);margin-top:2em">Heading font: Sorts Mill Goudy (SIL Open Font License, <a href="OFL-SortsMillGoudy.txt">licence</a>). Button font: ChicagoFLF, by Robin Casady. emupod is open source (<a href="https://github.com/davidbarnhart/emupod.com">source</a>). It runs the iPod's real, unmodified software on an emulated PortalPlayer PP5002 chip.</p>
 </main></body></html>
