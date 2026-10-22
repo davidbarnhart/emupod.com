@@ -43,7 +43,7 @@ cd emupod.com
 docker build -t emupod .
 docker run -p 8797:8797 -v emupod-cards:/cards emupod</pre>
 
-<div class="note"><strong>How tested it is:</strong> Not very. If you launch this docker container and then later that day get absolutely CHOMPED by an alligator, I&rsquo;m almost 50% sure the docker container had nothing to do with it. Please send me your feedback on attempted docker deployments.</div>
+<div class="note"><strong>How tested is the Docker container?</strong> Not very. If you launch this docker container and then later that day get absolutely CHOMPED by an alligator, I&rsquo;m almost 50% sure the docker container had nothing to do with it. Please send me your feedback on attempted docker deployments.</div>
 
 <h2>Uninstall</h2>
 <p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose.</p>
