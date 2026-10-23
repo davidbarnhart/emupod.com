@@ -17,7 +17,7 @@ checks its checksum, puts it in `~/emupod`, finds your music and asks which fold
 flash card reader (with sudo, once), can start emupod at boot, and prints the address to open on your phone. The first start puts the
 built-in card, Rainbow Road, in place. Nothing else to install first: no Python, no compiler.
 
-Tested so far: 64-bit Debian on x86-64. The Raspberry Pi (ARM) program is built the same way, and is being tried on a Pi now.
+Tested so far: 64-bit Debian on x86-64 and Raspberry Pi 4 (ARM).
 
 ## What is in this repository
 
