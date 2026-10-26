@@ -162,11 +162,12 @@ dependencies = [
 
 [[package]]
 name = "emupod-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "flashpod-core",
  "flate2",
+ "libc",
  "pp5002",
  "serde_json",
  "sha1_smol",

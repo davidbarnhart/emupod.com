@@ -1,14 +1,22 @@
 //! emupod: the iPod emulator behind the web page you open on your phone, as one program.
 //!
 //!     emupod web [--host 127.0.0.1] [--port 8797] [--cards ~/emupod-cards] [--card NAME] [--discard] [--notice TEXT]
+//!                [--nbd 127.0.0.1:10809 | off] [--iscsi 127.0.0.1:3260 | off] [--iscsi-secret FILE] [--orb-sectors N] [--automount SOCKET | off]
+//!     sudo emupod setup-automount [--user NAME] [--nbd 127.0.0.1:10809] [--at /media/emupod]   (the mount service; see mount_service)
+//!     sudo emupod remove-automount
 //!
 //! It serves the same page and answers the same requests as the Python server (emupod/web.py), so the page is shared.
+mod automount;
 mod burn;
 mod card;
 mod cards;
 mod cover;
+mod disk;
 mod host_audio;
 mod live;
+mod iscsi;
+mod mount_service;
+mod nbd;
 
 use cards::Store;
 use live::{Card, Shared};
@@ -44,10 +52,18 @@ struct Opts {
     jack: bool,
     audio_cmd: Option<String>,
     demo_card: Option<String>,
+    /// where the iPod in disk mode is served as a block device (None: not at all)
+    nbd: Option<String>,
+    /// where it is served as an iSCSI target (None: not at all), and the file with its CHAP secret
+    iscsi: Option<String>,
+    iscsi_secret: Option<String>,
+    orb_sectors: u32,
+    /// the mount service's socket (None: no automatic mounting)
+    automount: Option<String>,
 }
 
 fn usage() -> ! {
-    eprintln!("usage: emupod web [--host 127.0.0.1] [--port 8797] [--cards DIR] [--card NAME] [--discard] [--music-root DIR] [--firmware-dir DIR]... [--jack] [--audio-cmd CMD] [--notice TEXT]");
+    eprintln!("usage: emupod web [--host 127.0.0.1] [--port 8797] [--cards DIR] [--card NAME] [--discard] [--music-root DIR] [--firmware-dir DIR]... [--jack] [--audio-cmd CMD] [--notice TEXT] [--nbd ADDR:PORT|off] [--iscsi ADDR:PORT|off] [--iscsi-secret FILE] [--orb-sectors N] [--automount SOCKET|off]\n       sudo emupod setup-automount [--user NAME] [--nbd ADDR:PORT] [--at DIR]\n       sudo emupod remove-automount");
     std::process::exit(2)
 }
 
@@ -61,10 +77,17 @@ fn parse() -> Opts {
         println!("emupod {VERSION}");
         std::process::exit(0)
     }
-    if args.first().map(|a| a.as_str()) != Some("web") {
-        usage()
+    match args.first().map(|a| a.as_str()) {
+        Some("web") => {}
+        // the mount service, and setting it up (root)
+        Some("mount-service") => std::process::exit(mount_service::run(&args[1..])),
+        Some("setup-automount") => std::process::exit(mount_service::setup(&args[1..])),
+        Some("remove-automount") => std::process::exit(mount_service::remove(&args[1..])),
+        _ => usage(),
     }
-    let mut o = Opts { host: "127.0.0.1".into(), port: 8797, cards: format!("{}/emupod-cards", home()), card: None, discard: false, notice: String::new(), music_root: None, firmware_dirs: vec![], jack: false, audio_cmd: None, demo_card: None };
+    let mut o = Opts { host: "127.0.0.1".into(), port: 8797, cards: format!("{}/emupod-cards", home()), card: None, discard: false, notice: String::new(), music_root: None, firmware_dirs: vec![], jack: false, audio_cmd: None, demo_card: None,
+                      nbd: Some("127.0.0.1:10809".into()), iscsi: Some("127.0.0.1:3260".into()), iscsi_secret: None, orb_sectors: pp5002::sbp2::MAX_SECTORS,
+                      automount: Some(mount_service::SOCKET.into()) };
     let mut i = 1;
     while i < args.len() {
         let val = |i: usize| args.get(i + 1).cloned().unwrap_or_else(|| usage());
@@ -79,6 +102,11 @@ fn parse() -> Opts {
             "--firmware-dir" => { o.firmware_dirs.push(val(i).replacen('~', &home(), 1)); i += 1 }
             "--audio-cmd" => { o.audio_cmd = Some(val(i)); i += 1 }
             "--jack" => o.jack = true,
+            "--nbd" => { o.nbd = Some(val(i)).filter(|v| v != "off"); i += 1 }
+            "--automount" => { o.automount = Some(val(i)).filter(|v| v != "off"); i += 1 }
+            "--iscsi" => { o.iscsi = Some(val(i)).filter(|v| v != "off"); i += 1 }
+            "--iscsi-secret" => { o.iscsi_secret = Some(val(i).replacen('~', &home(), 1)); i += 1 }
+            "--orb-sectors" => { o.orb_sectors = val(i).parse().ok().filter(|n| (1..=pp5002::sbp2::MAX_SECTORS).contains(n)).unwrap_or_else(|| usage()); i += 1 }
             "--demo-card" => { o.demo_card = Some(val(i).replacen('~', &home(), 1)); i += 1 } // the built-in card from a file, not the demo site
             "--flashpod" => i += 1, // the Python server's: flashpod is built in here
             "--discard" => o.discard = true,
@@ -141,11 +169,18 @@ struct AudioStream {
 impl Read for AudioStream {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         if self.pos >= self.buf.len() {
-            let mut q = self.c.q.lock().unwrap();
             let deadline = Instant::now() + Duration::from_secs(15);
+            let mut q = self.c.q.lock().unwrap();
             while q.blocks.is_empty() && q.live && Instant::now() < deadline {
+                // the state's lock is never taken while holding this queue's: the emulator thread holds the clients' list while it takes
+                // each queue, and /state holds the state while it counts the clients (all three waiting on each other froze the server)
+                drop(q);
                 if self.shared.st.lock().unwrap().phase == "ended" {
                     return Ok(0);
+                }
+                q = self.c.q.lock().unwrap();
+                if !q.blocks.is_empty() || !q.live {
+                    break;
                 }
                 q = self.c.cond.wait_timeout(q, Duration::from_millis(500)).unwrap().0;
             }
@@ -331,6 +366,13 @@ fn handle(mut req: Request, shared: Arc<Shared>, store: Arc<Store>, burner: Arc<
                 if let Some(t) = c["text"].as_str() {
                     c["text"] = Value::String(t.chars().take(2000).collect());
                 }
+                if c["do"] == "line" && c["name"] == "cna" && c["level"].as_i64().unwrap_or(0) != 0 {
+                    // the FireWire cable out: a mounted disk is unmounted first
+                    let (sh, c) = (shared.clone(), c.clone());
+                    if shared.mount.unplug(Box::new(move || sh.cmds.lock().unwrap().push_back(c))) {
+                        return send_json(req, 200, &json!({"ok": true, "held": "unmounting first"}));
+                    }
+                }
                 shared.cmds.lock().unwrap().push_back(c);
             }
             send_json(req, 200, &json!({"ok": ok}))
@@ -360,6 +402,24 @@ fn main() {
         host.plug(true);
     }
     let shared = Shared::new(&notice, Some(card.clone()), host);
+    *shared.orb_sectors.lock().unwrap() = o.orb_sectors;
+    if let Some(a) = &o.nbd {
+        match nbd::listen(shared.nbd.clone(), a) {
+            Ok(()) => eprintln!("[nbd] disk mode is served at nbd://{a}/{}", nbd::EXPORT),
+            Err(e) => eprintln!("[nbd] not serving disk mode: {e}"),
+        }
+        if let Some(sock) = &o.automount {
+            shared.mount.start(sock.into(), shared.nbd.clone());
+        }
+    }
+    if let Some(a) = &o.iscsi {
+        // the CHAP secret: never logged; the page and the mount service read it from the file
+        let path = o.iscsi_secret.as_ref().map(std::path::PathBuf::from).unwrap_or_else(|| data_dir.join("iscsi-secret"));
+        match iscsi::secret(&path).and_then(|chap| iscsi::listen(shared.nbd.clone(), a, chap)) {
+            Ok(()) => eprintln!("[iscsi] disk mode is served at iscsi://{a}/{}/0 (CHAP user {}, secret in {})", iscsi::TARGET, iscsi::CHAP_USER, path.display()),
+            Err(e) => eprintln!("[iscsi] not serving disk mode: {e}"),
+        }
+    }
     {
         let shared = shared.clone();
         *store.restart.lock().unwrap() = Some(Box::new(move |c: Value| shared.cmds.lock().unwrap().push_back(c)));
@@ -383,6 +443,7 @@ fn main() {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
+            shared.mount.shutdown();
             shared.cmds.lock().unwrap().push_back(json!({"do": "quit"}));
         });
     }

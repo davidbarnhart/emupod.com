@@ -19,6 +19,56 @@ built-in card, Rainbow Road, in place. Nothing else to install first: no Python,
 
 Tested so far: 64-bit Debian on x86-64 and Raspberry Pi 4 (ARM).
 
+## Disk mode (FireWire)
+
+The page's **FireWire cable** button does what plugging in a cable does: the iPod reboots into its own disk-mode program ("Do not
+disconnect"). emupod then plays the computer on the other end of the cable. It logs in over SBP-2 and serves the iPod to the machine
+emupod runs on as a block device, an [NBD](https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md) export named `ipod` on
+`127.0.0.1:10809`. Every read and write goes through the iPod's disk-mode program, as SCSI READ(10)/WRITE(10) commands of up to 256 sectors (page-table ORBs past 127, as a Linux host sends).
+
+**Mounted for you.** emupod runs as your own user, without root; mounting a disk needs root. Set up its small mount service once
+(the installer offers it):
+
+```sh
+sudo ~/emupod/bin/emupod setup-automount        # undo: sudo ~/emupod/bin/emupod remove-automount
+```
+
+From then on the iPod's disk is mounted at `/media/emupod` (under `/media`, so your file manager and music programs such as Rhythmbox see it), owned by you, a few seconds after you click the cable in. When you click it
+out, emupod unmounts it first and lets the cable out only once that worked; if a program still has a file open there, the cable stays in
+and the page says which program. The service runs as root and does only that, for your user alone: it takes requests on a socket
+only you can use, and it attaches only emupod's export (`--nbd`, default `127.0.0.1:10809`) at only its mount point (`--at`, default
+`/media/emupod`), both fixed when you set it up. It runs its own root-owned copy of emupod, so run the setup again after an upgrade (the
+installer does).
+
+**By hand** (root, and the `nbd-client` package):
+
+```sh
+sudo modprobe nbd max_part=8
+sudo nbd-client 127.0.0.1 10809 /dev/nbd0 -N ipod     # or: sudo qemu-nbd -f raw -c /dev/nbd0 nbd://127.0.0.1:10809/ipod
+sudo mkdir -p /media/emupod && sudo mount /dev/nbd0p2 /media/emupod
+```
+
+Unmount and detach (`sudo umount /media/emupod && sudo nbd-client -d /dev/nbd0`) before you click the cable out, as with a real iPod. A card
+booted with its changes kept is written to. Any other card, the built-in one among them, keeps the writes in memory until the iPod
+restarts (256 MB at most), and its file is never changed. `--nbd ADDR:PORT` serves it somewhere else, such as your VPN address; emupod
+refuses 0.0.0.0. `--nbd off` turns it off.
+
+It is also an **iSCSI target**, `iqn.2026-10.com.emupod:ipod` on `127.0.0.1:3260`. Here the computer's own SCSI commands go to the
+iPod's disk-mode program, so an eject reaches the iPod itself ("OK to disconnect"). A session needs CHAP: the user is `emupod`, and the
+secret is in `~/.local/share/emupod/iscsi-secret` (made on first run, readable by you alone, never logged). With open-iscsi (root):
+
+```sh
+sudo iscsiadm -m discovery -t st -p 127.0.0.1:3260
+sudo iscsiadm -m node -T iqn.2026-10.com.emupod:ipod -o update -n node.session.auth.authmethod -v CHAP
+sudo iscsiadm -m node -T iqn.2026-10.com.emupod:ipod -o update -n node.session.auth.username -v emupod
+sudo iscsiadm -m node -T iqn.2026-10.com.emupod:ipod -o update -n node.session.auth.password -v "$(cat ~/.local/share/emupod/iscsi-secret)"
+sudo iscsiadm -m node -T iqn.2026-10.com.emupod:ipod --login     # the iPod is a new /dev/sdX; mount its second partition
+```
+
+Unmount and `--logout` before the cable comes out. Only one kind of host has the disk at a time: while an iSCSI session is logged in, NBD
+is refused, and the other way round. `--iscsi ADDR:PORT` and `--iscsi off` work as `--nbd`'s do, and `--iscsi-secret FILE` keeps the
+secret somewhere else.
+
 ## What is in this repository
 
 | | |

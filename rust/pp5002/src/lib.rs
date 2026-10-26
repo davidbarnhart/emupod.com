@@ -5,7 +5,10 @@
 
 pub mod ata;
 pub mod card;
+pub mod flash;
+pub mod fw;
 pub mod lcd;
+pub mod sbp2;
 
 use armcore::{Bus, Core, Cpu};
 pub use ata::Ata;
@@ -28,7 +31,10 @@ const TIMER1_VAL: u32 = 0xcf00_1104;
 const USEC_TIMER: u32 = 0xcf00_1110;
 /// what the chip answers when the firmware asks for its name (the release that picks the size of the IRAM by it, 1.0 to 1.2)
 const CHIP_ID: &[u8; 8] = b"PP5002E0";
-const CLICKER: u32 = 0xcf00_4040;
+/// The piezo's serial port (the second UART; the first, at 0xc0006000, is the dock's). The firmware makes a click by programming it, the
+/// divisor (the pitch) with the divisor latch open (LCR bit 7), then 8N1, then streaming 0xAA, a square wave, on its transmit line while
+/// the click lasts (1.5's click routine, 0x374f8). Writes of the device-enable register 0xcf004040 come with a click but also without one.
+const PIEZO_LCR: u32 = 0xc000_604c;
 const LRCK_PORT: u32 = 0xcf00_003c;
 const LRCK_BIT: u32 = 0x40;
 const PLL_CTL: u32 = 0xcf00_4010;
@@ -55,7 +61,6 @@ const DEFAULT_VOL_INSN: u32 = 0xe3a0_006a;
 /// The player's backlight flag in 1.5's data (found by toggling Backlight in the menu and diffing memory: 0 off, 1 on). There is no backlight
 /// hardware to read: the firmware only keeps this word, and the page draws the screen lit when it is set.
 const BACKLIGHT_AT: usize = 0x41a050;
-const CLICK_AT: u32 = 0x3750c;
 const START_VOL_CODE: [u8; 0x44] = [
     0x24, 0x00, 0x90, 0xe5, 0x7f, 0x00, 0x50, 0xe3, 0x1c, 0x10, 0x94, 0xd5, 0x40, 0x1c, 0x81, 0xd2, 0x7c, 0x0c, 0x81, 0xd5, 0x03, 0x00,
     0x00, 0xda, 0x1c, 0x00, 0x94, 0xe5, 0x7f, 0x10, 0xa0, 0xe3, 0x40, 0x0c, 0x80, 0xe2, 0x7c, 0x1c, 0x80, 0xe5, 0x1c, 0x00, 0x94, 0xe5,
@@ -263,12 +268,13 @@ pub struct Shared {
     snap_dirty: Vec<u8>,
     snap_dram: Option<Box<[u8]>>,
     snap_iram: Option<Box<[u8]>>,
-    dirty: Vec<u32>,
-    dirty_flag: bool,
+    /// pages written since each core (0 cpu, 1 cop) last dropped its decoded code
+    dirty: [Vec<u32>; 2],
+    dirty_flag: [bool; 2],
     /// 1.5's firmware family (its player's volume code, START_VOL_CODE, is there): its backlight flag is the word at DRAM offset BACKLIGHT_AT
     backlight_ok: bool,
-    /// the iPod times of the firmware's own clicks (its click routine's store), when its code is found
-    click_armed: bool,
+    /// the piezo's divisor latch is open (a tone is being set up); the iPod times of the clicks: each closing of the latch
+    piezo_dlab: bool,
     pub clicks: Vec<u64>,
     /// (core 0 cpu / 1 cop, write?, word address) -> count, when `cfg.trace_io`
     pub io: HashMap<(u8, bool, u32), u64>,
@@ -279,6 +285,20 @@ pub struct Shared {
     pub ev_ranges: Vec<(u32, u32)>,
     pub ev_log: Vec<(u8, bool, u32, u32, u64, u64)>,
     pub ev_cap: usize,
+    /// the flash chip, when the machine boots from it (`Machine::from_chip`); None when the firmware is put in DRAM directly
+    pub flash: Option<flash::Flash>,
+    /// the memory map registers 0xf000f000..0xf000f02c: four (logical, physical) windows, then the cache's
+    mmap: [u32; 12],
+    /// address 0 (to 32 MB) is the flash chip: a chip is present and no window maps DRAM there yet
+    low_flash: bool,
+    /// a system reset was asked for (0xcf005030 bit 2, by a machine booting from its chip); `Machine::slice` does it
+    reset_req: bool,
+    /// system resets done
+    pub resets: u64,
+    /// the FireWire link engine at 0x30000000 (a machine booting from its chip has one)
+    pub fw: Option<fw::Engine>,
+    /// the storage controller's configuration word, 0xc0003024 (bit 0x40 always reads set: the drive answers)
+    ide_cfg: u32,
 }
 
 impl Audio {
@@ -315,9 +335,24 @@ impl Shared {
             self.snap_dirty[page] = 1;
         }
         if self.code_pages[page] {
-            self.code_pages[page] = false;
-            self.dirty.push(page as u32);
-            self.dirty_flag = true;
+            self.drop_code(page);
+        }
+    }
+
+    /// Both cores must forget what they decoded from `page` (each takes its own list: one core's flush must not hide the write from
+    /// the other).
+    #[inline(never)]
+    fn drop_code(&mut self, page: usize) {
+        self.code_pages[page] = false;
+        for k in 0..2 {
+            let d = &mut self.dirty[k];
+            d.push(page as u32);
+            if d.len() > 1 << 16 {
+                // a core that sleeps through many rewrites: keep each page once
+                d.sort_unstable();
+                d.dedup();
+            }
+            self.dirty_flag[k] = true;
         }
     }
 
@@ -450,6 +485,25 @@ impl Shared {
         }
     }
 
+    /// After a write to the memory map: address 0 is DRAM once a window maps logical 0 to physical 0x28000000 (osos's reset code writes
+    /// 0x3b00 / 0x28003f84 to the third window), the flash chip otherwise. Without a chip, address 0 is always DRAM.
+    fn remap(&mut self) {
+        let dram_low = (0..4).any(|i| {
+            let (l, p) = (self.mmap[2 * i], self.mmap[2 * i + 1]);
+            p >> 24 == 0x28 && l >> 20 == 0
+        });
+        let low_flash = self.flash.is_some() && !dram_low;
+        if low_flash != self.low_flash {
+            self.low_flash = low_flash;
+            // what was decoded at the low addresses came from the other memory
+            for page in 0..0x8000 {
+                if self.code_pages[page] {
+                    self.drop_code(page);
+                }
+            }
+        }
+    }
+
     fn page(&mut self, a: u32) -> (&mut [u8], usize) {
         let key = a >> 20;
         let p = self.sparse.entry(key).or_insert_with(|| vec![0u8; 0x10_0000].into_boxed_slice());
@@ -503,11 +557,16 @@ impl Shared {
             return (CHIP_ID[i] as u32) << 8 | CHIP_ID[i + 1] as u32;
         }
         if a == PLL_CTL {
-            return (self.pll & !PLL_LOCKED) | if self.pll & 0x2000 != 0 { PLL_LOCKED } else { 0 };
+            // osos enables with 0x2000 and waits for 0x1000; the bootloader enables with 0x4000 and waits for 0x800
+            let locked = if self.pll & 0x2000 != 0 { PLL_LOCKED } else { 0 } | if self.pll & 0x4000 != 0 { 0x800 } else { 0 };
+            return (self.pll & !(PLL_LOCKED | 0x800)) | locked;
         }
         match a {
             0xc400_0000 => CPU_ID,
-            0xc000_3024 => 0x40,
+            // The interrupt latch and the written bits are modelled for a machine booting from its chip (the bootloader and the disk-mode
+            // program wait on the latch); the firmware-in-DRAM machine keeps the constant its recordings were made with.
+            0xc000_3024 if self.flash.is_none() => 0x40,
+            0xc000_3024 => (self.ide_cfg & !0x30) | 0x40 | if self.ata.intrq { 0x10 } else { 0 },
             _ => 0,
         }
     }
@@ -628,10 +687,14 @@ impl Shared {
         if a & !0xfff == 0xc000_1000 {
             self.lcd_count += 1;
             self.lcd_log.push((a, val));
-        } else if a == CLICKER && !self.click_armed && self.who == Who::Cpu {
-            // every firmware clicks by one read-modify-write of the clicker register (1.5's own click routine is hooked instead, when found)
-            let t = self.now();
-            self.clicks.push(t);
+        } else if a == PIEZO_LCR {
+            // a tone starts when its divisor is set: the latch closes
+            let dlab = val & 0x80 != 0;
+            if self.piezo_dlab && !dlab {
+                let t = self.now();
+                self.clicks.push(t);
+            }
+            self.piezo_dlab = dlab;
         } else if a == CPU_CTL || a == COP_CTL {
             let v = val & 0xff;
             if a == CPU_CTL {
@@ -652,6 +715,12 @@ impl Shared {
                 } else if v == PROC_WAKE {
                     if self.cop_asleep {
                         self.cop_wakes += 1;
+                        if self.flash.is_some() && self.who == Who::Cpu {
+                            // The bootloader wakes the coprocessor and jumps into the image it loaded, whose reset code soon maps DRAM
+                            // over the flash the coprocessor is sleeping in. On the chip the coprocessor's next two instructions (its
+                            // jump to the image) come long before that; here it gets its turn at once.
+                            self.stop_now = true;
+                        }
                     }
                     self.cop_asleep = false;
                 }
@@ -680,6 +749,17 @@ impl Shared {
         } else if ata::is_taskfile(a) {
             let now = self.now();
             self.ata.write(a, val, now);
+        } else if a == ata::ALT {
+            self.ata.control(val);
+        } else if a == 0xcf00_5030 && val & 4 != 0 && self.flash.is_some() {
+            // the system reset Apple's updater asks for when it has rewritten the chip (0x28007afc)
+            self.reset_req = true;
+            self.stop_now = true;
+        } else if a == 0xc000_3024 {
+            if val & 0x10 != 0 {
+                self.ata.intrq = false;
+            }
+            self.ide_cfg = val;
         } else if a == TIMER1_CFG {
             self.t1.cfg = val;
             if val & 0x8000_0000 != 0 {
@@ -715,7 +795,7 @@ impl Shared {
     #[inline(always)]
     fn rd_inner(&mut self, a: u32, size: u32) -> u32 {
         let h = a >> 25;
-        if h == 0 || h == 2 || h == 20 {
+        if (h == 0 && !self.low_flash) || h == 2 || h == 20 {
             let i = (a & 0x1ff_ffff) as usize;
             if i <= DRAM_SIZE - 4 {
                 // the common case: one load (the core hands the bus aligned addresses)
@@ -762,6 +842,11 @@ impl Shared {
             }
             return v;
         }
+        if a >> 25 == 0 {
+            // low_flash: the chip, repeated through the 32 MB
+            self.epoch += 1;
+            return self.flash.as_mut().unwrap().read(a, size);
+        }
         if a >> 28 == 0xc {
             self.epoch += 1;
             let v = self.mmio_read(a);
@@ -772,7 +857,14 @@ impl Shared {
             };
         }
         if a >> 24 == 0xf0 {
+            if self.flash.is_some() && (0xf000_f000..0xf000_f030).contains(&a) {
+                return self.mmap[((a - 0xf000_f000) >> 2) as usize];
+            }
             return 0;
+        }
+        if a >> 16 == 0x3000 && self.fw.is_some() {
+            self.epoch += 1;
+            return self.fw.as_mut().unwrap().read(a, size);
         }
         if a >> 25 == 3 {
             let i = (a & 0x1ff_ffff) as usize;
@@ -799,7 +891,7 @@ impl Shared {
     #[inline(always)]
     fn wr_inner(&mut self, a: u32, size: u32, v: u32) {
         let h = a >> 25;
-        if h == 0 || h == 2 || h == 20 {
+        if (h == 0 && !self.low_flash) || h == 2 || h == 20 {
             let i = (a & 0x1ff_ffff) as usize;
             if i <= DRAM_SIZE - 4 {
                 match size {
@@ -896,12 +988,43 @@ impl Shared {
             }
             return;
         }
+        if a >> 25 == 0 {
+            self.epoch += 1;
+            self.flash.as_mut().unwrap().write(a, size, v);
+            return;
+        }
         if a >> 28 == 0xc {
             self.epoch += 1;
             self.mmio_write(a, size, v);
             return;
         }
         if a >> 24 == 0xf0 {
+            if (0xf000_f000..0xf000_f030).contains(&a) && a & 3 == 0 {
+                self.epoch += 1;
+                self.mmap[((a - 0xf000_f000) >> 2) as usize] = v;
+                self.remap();
+            }
+            return;
+        }
+        if a >> 16 == 0x3000 && self.fw.is_some() {
+            self.epoch += 1;
+            let f = self.fw.as_mut().unwrap();
+            f.write(a, size, v);
+            if let Some(n) = f.take_push() {
+                // the push takes the drive's data straight from its buffer (no memory in between)
+                let now = self.now();
+                let mut buf = Vec::new();
+                self.ata.read_block(n, now, &mut buf);
+                self.fw.as_mut().unwrap().push_done(&buf);
+            }
+            if let Some(data) = self.fw.as_mut().unwrap().take_pull() {
+                // and the pull writes the host's data straight into the drive
+                let now = self.now();
+                for h in data.chunks(2) {
+                    self.ata.write(ata::DATA, h[0] as u32 | (*h.get(1).unwrap_or(&0) as u32) << 8, now);
+                }
+                self.fw.as_mut().unwrap().pull_done();
+            }
             return;
         }
         if a >> 25 == 3 {
@@ -1007,7 +1130,7 @@ impl Bus for Shared {
             return u32::MAX;
         }
         let h = pc >> 25;
-        if h == 0 || h == 2 || h == 20 {
+        if (h == 0 && !self.low_flash) || h == 2 || h == 20 {
             (pc & 0x1ff_ffff) >> 2
         } else if pc >> 20 == 0x400 {
             0x80_0000 + ((pc & self.iram_mask) >> 2)
@@ -1023,42 +1146,27 @@ impl Bus for Shared {
         if self.cfg.study_nocache && (pc >> 28) == 4 {
             return false;
         }
+        if self.low_flash && pc >> 25 == 0 {
+            return false;
+        }
         if !self.cfg.ack_on_read && pc & 0x0fff_ffff == 0x0001_18ec {
             return false; // the timer acknowledge is hooked on this address's every execution
         }
-        if self.click_armed {
-            let h = pc >> 25;
-            if h == 0 || h == 2 || h == 20 {
-                return pc & 0x1ff_ffff != CLICK_AT;
-            }
-        }
         true
     }
-    fn hook(&mut self, pc: u32, _cpu: &mut Cpu) {
-        if self.call_literal && self.call_on {
-            return;
-        }
-        let h = pc >> 25;
-        if !(h == 0 || h == 2 || h == 20) {
-            return;
-        }
-        let p = pc & 0x1ff_ffff;
-        if p == CLICK_AT && self.click_armed {
-            let t = self.now();
-            self.clicks.push(t);
-        }
-    }
+    fn hook(&mut self, _pc: u32, _cpu: &mut Cpu) {}
     #[inline(always)]
     fn mark_code(&mut self, page: u32) {
         self.code_pages[page as usize] = true;
     }
     #[inline(always)]
     fn code_dirty(&self) -> bool {
-        self.dirty_flag
+        self.dirty_flag[(self.who == Who::Cop) as usize]
     }
     fn take_dirty(&mut self, out: &mut Vec<u32>) {
-        out.append(&mut self.dirty);
-        self.dirty_flag = false;
+        let k = (self.who == Who::Cop) as usize;
+        out.append(&mut self.dirty[k]);
+        self.dirty_flag[k] = false;
     }
     #[inline(always)]
     fn at(&mut self, n: u64) {
@@ -1110,7 +1218,18 @@ impl Machine {
         Machine::build(osos, ata, cfg)
     }
 
+    /// A machine that boots as the iPod does: from reset at address 0, in the flash chip `chip` (1 MB: its boot block, the bootloader
+    /// that picks an image from the disk or the chip, and the chip's own images). Nothing is put in DRAM; the bootloader loads it.
+    pub fn from_chip(chip: &[u8], disk: Box<dyn ata::Disk>, cfg: Config) -> Machine {
+        let ata = Ata::with_disk(disk, cfg.persist, cfg.ata_bsy, cfg.ata_cmd_us, cfg.ata_block_us, cfg.ata_lba48);
+        Machine::build_from(&[], Some(chip), ata, cfg)
+    }
+
     fn build(osos: &[u8], ata: Ata, cfg: Config) -> Machine {
+        Machine::build_from(osos, None, ata, cfg)
+    }
+
+    fn build_from(osos: &[u8], chip: Option<&[u8]>, ata: Ata, cfg: Config) -> Machine {
         let fpf = cfg.audio_fpf.unwrap_or(8);
         let has_cop = cfg.cop;
         let mut s = Shared {
@@ -1181,10 +1300,10 @@ impl Machine {
             snap_dirty: Vec::new(),
             snap_dram: None,
             snap_iram: None,
-            dirty: Vec::new(),
-            dirty_flag: false,
+            dirty: [Vec::new(), Vec::new()],
+            dirty_flag: [false, false],
             backlight_ok: false,
-            click_armed: false,
+            piezo_dlab: false,
             clicks: Vec::new(),
             io: HashMap::new(),
             io_last: HashMap::new(),
@@ -1192,9 +1311,21 @@ impl Machine {
             ev_ranges: Vec::new(),
             ev_log: Vec::new(),
             ev_cap: 0,
+            flash: None,
+            mmap: [0; 12],
+            low_flash: false,
+            ide_cfg: 0,
+            reset_req: false,
+            resets: 0,
+            fw: None,
             cfg,
         };
         s.dram[..osos.len()].copy_from_slice(osos);
+        if let Some(c) = chip {
+            s.flash = Some(flash::Flash::new(c));
+            s.low_flash = true;
+            s.fw = Some(fw::Engine::default());
+        }
         if !s.cfg.plugged {
             s.gp[in_val_idx(2)] = (1 << 3) | (1 << 4) | (1 << 7);
         }
@@ -1207,14 +1338,18 @@ impl Machine {
             Some(v) if s.backlight_ok && osos.len() >= DEFAULT_VOL_AT + 4 && word(DEFAULT_VOL_AT) == DEFAULT_VOL_INSN => Some(v.min(127)),
             _ => None,
         };
-        // the click routine's store: a STR in the routine's range
-        s.click_armed = osos.len() > 0x37760 && word(CLICK_AT as usize) & 0x0c50_0000 == 0x0400_0000 && std::env::var("EMUPOD_RS_CLICK_REG").is_err();
         let mut m = Machine { watch_on: false, watch_addr: 0, watch_hit: None, watch_regs: [0; 16], watch_stop: true, watch_log: Vec::new(), bp_pc: 0xffff_ffff, bp_mem: Vec::new(), ring: std::collections::VecDeque::new(), bp_hits: Vec::new(), snap_cpu: None, hook_pcs: Vec::new(), hook_log: Vec::new(), hook_peek: None, cop_trace_left: 0, cop_log: Vec::new(), s, cpu: Core::new(), cop: Core::new() };
         m.cpu.cpu.r[13] = 0x4008_0000;
         m.cop.cpu.r[13] = 0x4008_0000;
-        m.cpu.cpu.pc = ENTRY;
-        m.cop.cpu.pc = ENTRY;
-        if has_cop {
+        let entry = if chip.is_some() { 0 } else { ENTRY };
+        m.cpu.cpu.pc = entry;
+        m.cop.cpu.pc = entry;
+        if has_cop && chip.is_some() {
+            // both cores start in the boot block; the coprocessor's run, to the sleep the bootloader puts it in, is kept (on the chip
+            // they run at once and the memory they leave is the same)
+            m.run_cop(5_000_000);
+            m.s.cop_sleeps = 0;
+        } else if has_cop {
             // Reset: both cores run the reset code at once on hardware, before either has changed anything. Here the
             // coprocessor runs it first, to its sleep, and the CPU then starts from the same vector.
             m.run_cop(5_000_000);
@@ -1237,6 +1372,16 @@ impl Machine {
     #[inline]
     pub fn now(&self) -> u64 {
         self.s.now()
+    }
+
+    /// The memory map registers 0xf000f000..0xf000f02c as last written.
+    pub fn mmap(&self) -> [u32; 12] {
+        self.s.mmap
+    }
+
+    /// Whether address 0 is the flash chip now (a machine booting from its chip, before the firmware maps DRAM there).
+    pub fn low_flash(&self) -> bool {
+        self.s.low_flash
     }
 
     /// Whether the player has its backlight on (1.5-family firmware only; false for any other).
@@ -1277,6 +1422,16 @@ impl Machine {
 
     pub fn cop_wake_for_study(&mut self) {
         self.s.cop_asleep = false;
+    }
+
+    /// (study) Run the CPU `n` instructions one at a time: (pc, cpsr, r0..r15) before each.
+    pub fn cpu_trace(&mut self, n: usize) -> Vec<(u32, u32, [u32; 16])> {
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            out.push((self.cpu.cpu.pc, self.cpu.cpu.cpsr, self.cpu.cpu.r));
+            self.run_cpu(1);
+        }
+        out
     }
 
     pub fn cop_trace(&mut self, n: usize) -> Vec<(u32, u32)> {
@@ -1618,6 +1773,18 @@ impl Machine {
         if self.s.pending & (1 << SIGNAL_IRQ) != 0 {
             self.inject(SIGNAL_IRQ);
         }
+        if self.s.fw.as_ref().map_or(false, |f| f.irq) {
+            // the FireWire engine's doorbell: GPIO port 2 bit 5, the key/GPIO interrupt line
+            self.s.gp[int_stat_idx(2)] |= 0x20;
+            self.s.pending |= self.s.gpio_en_bit;
+            if self.cpu.cpu.cpsr & armcore::BIT_I == 0 {
+                let took = self.cpu.cpu.irq(&mut self.s);
+                self.s.irqs += took as u64;
+                if took {
+                    self.s.fw.as_mut().unwrap().irq = false;
+                }
+            }
+        }
         if self.s.cfg.irq_mask && self.s.pending & self.s.cpu_en & self.s.gpio_en_bit != 0 && self.cpu.cpu.cpsr & armcore::BIT_I == 0 {
             let took = self.cpu.cpu.irq(&mut self.s);
             self.s.irqs += took as u64;
@@ -1694,12 +1861,42 @@ impl Machine {
         }
         s.sub = 0;
         s.fetched = 0;
+        if s.reset_req {
+            self.reset();
+            return;
+        }
+        let s = &mut self.s;
         if let Some(d) = dl {
             if s.now_base >= d {
                 s.tick_due = true;
                 let p = s.t1.period;
                 s.t1.deadline = Some(d + p * ((s.now_base - d) / p + 1));
             }
+        }
+    }
+
+    /// A system reset of a machine booting from its chip: both cores start again at 0 in the flash, the memory map is cleared (address 0
+    /// is the chip again) and the devices' interrupts are quiet; memory keeps what it holds (the bootloader reads its token there).
+    pub fn reset(&mut self) {
+        let s = &mut self.s;
+        s.reset_req = false;
+        s.resets += 1;
+        s.mmap = [0; 12];
+        s.remap();
+        s.pending = 0;
+        s.tick_due = false;
+        s.t1 = Timer1 { cfg: 0, period: 0, deadline: None };
+        s.audio_enable(false);
+        if let Some(f) = s.fw.as_mut() {
+            let host = f.host;
+            *f = fw::Engine::default();
+            f.host = host;
+        }
+        self.cpu.cpu = armcore::Cpu::new();
+        self.cop.cpu = armcore::Cpu::new();
+        if self.s.has_cop {
+            self.s.cop_asleep = false;
+            self.run_cop(5_000_000);
         }
     }
 
@@ -1813,5 +2010,41 @@ impl Machine {
     }
     pub fn cpu_regs(&self) -> &Cpu {
         &self.cpu.cpu
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoDisk;
+    impl ata::Disk for NoDisk {
+        fn len(&self) -> u64 {
+            0
+        }
+        fn read_at(&self, _: &mut [u8], _: u64) {}
+        fn write_at(&self, _: &[u8], _: u64) {}
+    }
+
+    /// Both cores decoded code from one page, then it was written: each core must hear of it, not only the first to look.
+    /// With one shared list (before 0479a78), Apple's reset stub rewritten in IRAM at 0x40010000 ran stale on the CPU once the
+    /// COP had taken the notice, and a self-restart (cable, disk mode) slid through unmapped memory.
+    #[test]
+    fn a_write_to_code_both_cores_hold_reaches_both() {
+        let mut m = Machine::with_disk(&[], Box::new(NoDisk), Config { cop: false, ..Config::default() });
+        let s = &mut m.s;
+        for who in [Who::Cpu, Who::Cop] {
+            s.who = who;
+            s.mark_code(5);
+        }
+        s.touch_code(5);
+        for who in [Who::Cop, Who::Cpu] {
+            s.who = who;
+            assert!(s.code_dirty());
+            let mut out = Vec::new();
+            s.take_dirty(&mut out);
+            assert_eq!(out, vec![5]);
+            assert!(!s.code_dirty());
+        }
     }
 }

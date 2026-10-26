@@ -99,6 +99,12 @@ pub struct Ata {
     pub n_writes: u64,
     pub sectors_read: u64,
     pub sectors_written: u64,
+    /// the drive's interrupt request, as the controller latches it (0xc0003024 bit 0x10, cleared by writing that bit): raised when a
+    /// command finishes or a block of data is ready, and after each block written
+    pub intrq: bool,
+    /// the device control register's last value (bit 2 = SRST)
+    devctl: u32,
+    pub resets: u64,
 }
 
 fn slot(a: u32) -> usize {
@@ -160,6 +166,9 @@ impl Ata {
             n_writes: 0,
             sectors_read: 0,
             sectors_written: 0,
+            intrq: false,
+            devctl: 0,
+            resets: 0,
         }
     }
 
@@ -275,6 +284,7 @@ impl Ata {
                         self.bsy = self.bsy_reads;
                         let bu = self.block_us;
                         self.wait(now, bu);
+                        self.intrq = true;
                     }
                 }
                 v
@@ -313,6 +323,7 @@ impl Ata {
                 }
                 if crossed {
                     self.bsy = self.bsy_reads;
+                    self.intrq = true;
                 }
             }
         }
@@ -331,10 +342,11 @@ impl Ata {
                         let mut s = [0u8; 512];
                         s.copy_from_slice(&self.wbuf[..512]);
                         self.wbuf.drain(..512);
-                        self.overlay.insert(self.wlba, s);
-                        if self.persist {
-                            if let Some(f) = &self.file {
-                                let _ = f.write_at(&s, self.wlba * 512);
+                        // kept: the disk holds it (a session of writes, a host copying a card's worth, would all sit here too otherwise)
+                        match (&self.file, self.persist) {
+                            (Some(f), true) => f.write_at(&s, self.wlba * 512),
+                            _ => {
+                                self.overlay.insert(self.wlba, s);
                             }
                         }
                         self.wlba += 1;
@@ -344,6 +356,7 @@ impl Ata {
                             self.bsy = self.bsy_reads;
                             let bu = self.block_us;
                             self.wait(now, bu);
+                            self.intrq = true;
                         }
                     }
                 }
@@ -356,6 +369,24 @@ impl Ata {
                 self.r[s] = v & 0xff;
             }
         }
+    }
+
+    /// A write to the device control register (0xc00033f8). Clearing SRST after setting it resets the drive: what it was doing is
+    /// dropped and the registers hold the signature of an ATA device (count 1, sector 1, cylinder 0/0), with diagnostics passed.
+    pub fn control(&mut self, v: u32) {
+        if self.devctl & 4 != 0 && v & 4 == 0 {
+            self.r = [1, 1, 0, 0, 0, 0, 0, 0];
+            self.hob = [0; 4];
+            self.err = 1;
+            self.failed = false;
+            self.fifo.clear();
+            self.fpos = 0;
+            self.wleft = 0;
+            self.wbuf.clear();
+            self.read_err = None;
+            self.resets += 1;
+        }
+        self.devctl = v & 0xff;
     }
 
     fn ext(c: u32) -> Option<u32> {
@@ -449,6 +480,8 @@ impl Ata {
             self.stop(ABRT);
             out = "ERR 0x04 (not implemented)";
         }
+        // a write raises it after its blocks; anything else now
+        self.intrq = self.wleft == 0;
         let _ = UNC;
         let count = if opcode != c { self.r[0] } else { n as u32 };
         let count = if opcode != c { count } else { count };

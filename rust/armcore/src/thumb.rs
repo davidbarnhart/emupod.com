@@ -256,6 +256,7 @@ fn ldst_sign<B: Bus, const OP: u32>(c: &mut Cpu, b: &mut B, i: u32) {
         }
         _ => {
             c.r[rd] = if addr & 1 != 0 {
+                b.misaligned(addr, 2);
                 b.read8(addr) as i8 as i32 as u32
             } else {
                 b.read16(addr) as i16 as i32 as u32

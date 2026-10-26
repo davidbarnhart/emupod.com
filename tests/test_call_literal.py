@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Rust core's call harness in LITERAL mode, the address space the decompilation gate uses (bridge #1340). No firmware or card needed.
+"""The Rust core's call harness in LITERAL mode, the address space the decompilation gate uses. No firmware or card needed.
 
     python3 tests/test_call_literal.py
 

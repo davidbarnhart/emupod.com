@@ -34,7 +34,7 @@ pre.oneline{font-size:clamp(11px,3vw,14px);padding-left:12px;padding-right:12px}
 <code>|</code><span>&larr; the pipe: hands what curl downloaded straight to the next command</span>
 <code>sh</code><span>&larr; the shell: runs the install script it receives</span>
 </div>
-<p>The script is short: <a href="install.sh">read it first</a>. It checks your machine, downloads the emupod release for it and verifies the checksum, installs into <code>~/emupod</code>, asks where your cards and music live, can start emupod at boot, and prints the address to open on your phone (for example <code>http://192.168.1.20:8797/</code>).</p>
+<p>The script is short: <a href="install.sh">read it first</a>. It checks your machine, downloads the emupod release for it and verifies the checksum, and installs into a folder you choose (<code>~/emupod</code> by default). It asks where your cards live, looks for music folders on your machine and lets you pick one, picks a free port, and asks whether your phone may reach it over your network. If you want to burn physical cards, it asks for <code>sudo</code> to add a rule that lets your user write to USB card readers; nothing else uses <code>sudo</code>. It can start emupod at boot, and it prints the address to open on your phone (for example <code>http://192.168.1.20:8797/</code>).</p>
 <p>The first start puts the built-in card, Rainbow Road, in place (a one-time download of a few megabytes). Cards are virtual. You can add your own music to cards, duplicate cards, and even burn them back to a physical iPod-compatible flash card in your host's USB port.</p>
 
 <h2>Or with Docker</h2>
@@ -46,13 +46,16 @@ docker run -p 8797:8797 -v emupod-cards:/cards emupod</pre>
 <div class="note"><strong>How tested is the Docker container?</strong> Not very. If you launch this Docker container and then later that day you get absolutely CHOMPED by an alligator, I&rsquo;m basically 50% sure the Docker container had nothing to do with it. Please send me your feedback on attempted Docker deployments.</div>
 
 <h2>Uninstall</h2>
-<p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose.</p>
+<p>Delete <code>~/emupod</code> and, if you chose to start it at boot, <code>~/.config/systemd/user/emupod.service</code>. Your cards stay in the card folder you chose. If you allowed card burning, also delete <code>/etc/udev/rules.d/70-emupod-sd.rules</code> (with sudo).</p>
 
 <h2>What? Why? How?</h2>
-<p><strong>What:</strong> this is full emulation of the 1st generation iPod. It can be run temporarily in browser or installed on a device like a Raspberry Pi and controlled via a local webpage.</p>
+<p><strong>What:</strong> this is full emulation of the 1st generation iPod. That means it runs the iPod&rsquo;s original ARM machine code on an emulated PP5002 and emulates the iPod&rsquo;s other internal chips. It can be run temporarily in browser or installed on a device like a Raspberry Pi and controlled via a local webpage.</p>
 <p><strong>Why:</strong> My name is David and I&rsquo;ve been tinkering with iPods for a long time. My latest endeavor has been understanding their inner workings better. I built an emulator for the 1st generation iPod to help me better understand the software running on the iPod (aka &ldquo;the firmware&rdquo;). The emulator was highly useful as a research tool but highly boring for just about everything else, so I decided to augment the emulator with this webapp to make it way more fun and more accessible to others.</p>
 <p><strong>How:</strong> This emulator and webapp are built primarily with Rust, which allows the code to compile into WebAssembly and run in modern browsers and mobile phones. The earliest version of this leveraged the Unicorn emulator to help approximate the ARM chip inside the iPod. To pack this all into a webapp, however, I reworked the PP5002 emulator into pure Rust and improved things by yelling &ldquo;enhance!&rdquo; repeatedly at my computer monitor in a commanding voice.</p>
 <p>The demo player runs entirely within your browser, with a small virtual &ldquo;card&rdquo; holding the firmware and single music file. The full player is meant to be installed on a small computer like a Raspberry Pi. When installed this way, it exposes a local webapp that you can open on your phone or computer to control the player. Integrate the Raspberry Pi into your home Hi-Fi system and start rocking like it&rsquo;s 2001 again.</p>
+
+<h2>Open source</h2>
+<p>Explore it for yourself: <a href="https://github.com/davidbarnhart/emupod.com">github.com/davidbarnhart/emupod.com</a></p>
 
 <p style="color:var(--mute);margin-top:2em">Heading font: Sorts Mill Goudy (SIL Open Font License, <a href="OFL-SortsMillGoudy.txt">licence</a>). Button font: ChicagoFLF, by Robin Casady. emupod is open source (<a href="https://github.com/davidbarnhart/emupod.com">source</a>). It runs the iPod's real, unmodified software on an emulated PortalPlayer PP5002 chip.</p>
 </main></body></html>

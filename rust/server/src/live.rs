@@ -1,6 +1,8 @@
 //! The iPod running: one emulator thread drives the machine in real time (web.py's Live and recording.Driver, the same behaviour),
 //! and the HTTP threads read what it publishes. Commands from the page (/cmd) queue up and go in between ticks.
-use pp5002::{Config, Machine};
+use crate::disk::{DiskRef, SessionDisk};
+use crate::nbd;
+use pp5002::{sbp2, Config, Machine};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
@@ -131,6 +133,8 @@ pub struct Pub {
     pub px: Vec<u8>,
     pub cover: Option<(String, Vec<u8>)>,
     pub ipod: Option<Value>,
+    /// the FireWire disk mode: where it is, and where a host attaches (nbd)
+    pub fwdisk: Value,
     sig: String,
 }
 
@@ -143,6 +147,12 @@ pub struct Shared {
     pub host: crate::host_audio::HostAudio,
     /// the iPod's counters once a second, the last five minutes: a page that opens (or reloads) draws its charts from them
     pub hist: Mutex<VecDeque<Value>>,
+    /// the block device a host sees while the iPod is in disk mode
+    pub nbd: Arc<nbd::Hub>,
+    /// the most sectors one SBP-2 ORB moves
+    pub orb_sectors: Mutex<u32>,
+    /// mounting the disk-mode disk on this machine (through the mount service)
+    pub mount: Arc<crate::automount::Mounter>,
 }
 
 impl Shared {
@@ -169,6 +179,7 @@ impl Shared {
                 px: vec![],
                 cover: None,
                 ipod: None,
+                fwdisk: json!({"mode": "normal"}),
                 sig: String::new(),
             }),
             cond: Condvar::new(),
@@ -176,6 +187,9 @@ impl Shared {
             audio: Audio::default(),
             host,
             hist: Mutex::new(VecDeque::new()),
+            nbd: Arc::new(nbd::Hub::default()),
+            orb_sectors: Mutex::new(sbp2::MAX_SECTORS),
+            mount: Arc::default(),
         })
     }
 
@@ -183,6 +197,9 @@ impl Shared {
     /// the iPod still running; the packed screen (base64) comes with it when it is not the one the page has.
     pub fn poll(&self, since: &str, ver: &str, wait: f64) -> Value {
         let deadline = Instant::now() + Duration::from_secs_f64(wait.clamp(0.0, 20.0));
+        // counted before the state is locked: no other lock is taken while holding the state's (see AudioStream::read)
+        let listeners = self.audio.clients.lock().unwrap().len();
+        let mount = self.mount.state();
         let mut st = self.st.lock().unwrap();
         loop {
             let same = st.digest.as_deref().unwrap_or("") == since && st.ver.to_string() == ver && st.phase != "ended";
@@ -193,7 +210,8 @@ impl Shared {
             st = self.cond.wait_timeout(st, deadline - now).unwrap().0;
         }
         let mut v = state_json(&st);
-        v["jack"] = self.host.state(self.audio.clients.lock().unwrap().len());
+        v["jack"] = self.host.state(listeners);
+        v["fwdisk"]["mount"] = mount;
         if let Some(d) = &st.digest {
             if d != since {
                 use base64::Engine;
@@ -214,20 +232,65 @@ pub fn state_json(st: &Pub) -> Value {
         "clicks": st.clicks, "np": st.np.map(|(a, b)| json!([a, b])).unwrap_or(Value::Null), "keys": st.keys, "lines": lines,
         "recent": st.recent, "shots": [], "dir": st.dir, "label": "", "ver": st.ver, "notice": st.notice,
         "card": st.card.as_ref().map(|c| json!({"name": c.name, "keep": c.keep})).unwrap_or(Value::Null),
-        "backlight": st.backlight, "screen": st.digest,
+        "backlight": st.backlight, "screen": st.digest, "fwdisk": st.fwdisk,
     })
 }
 
 // ------------------------------------------------------------------------------------------------ the driver
 
+/// Where the iPod is with the FireWire cable.
+enum Fw {
+    Normal,
+    /// osos reset into disk mode: the machine boots from the chip, and a host logs in once the disk-mode program answers (tried at
+    /// `next_try`, then every second)
+    Disk { session: Option<sbp2::Session>, next_try: u64 },
+    /// the cable came out: the program restarts the iPod (it jumps to 0); then (or at `deadline` of the chip machine's clock) the
+    /// normal machine boots
+    Leaving { deadline: u64 },
+}
+
 struct Driver {
     m: Machine,
+    fw: Fw,
+    disk: Arc<SessionDisk>,
+    /// the chip the card's aupd makes, once disk mode has needed it
+    chip: Option<Vec<u8>>,
     screen: pp5002::lcd::Screen,
     step_n: u64,
     down: HashMap<String, u64>,
     hold: u8,
     changed: bool,
     digest: String,
+    /// the export generation the computer ejected (the iPod shows "OK to disconnect")
+    ejected: u64,
+}
+
+/// The configuration of the normal machine (osos booted directly, the server's real-time settings).
+fn live_cfg() -> Config {
+    Config {
+        cop_ipus: 26,
+        interleave_playing: 300,
+        interleave_settle: 200_000,
+        audio_fpf: None,
+        start_volume: Some(START_VOLUME),
+        // writes go to the session's disk, which keeps or discards them
+        persist: true,
+        slice_clock: true,
+        lazy_map: true,
+        ..Config::default()
+    }
+}
+
+/// The lines a reset leaves as they were (the hold switch, and port 2's: FireWire power and cable, the charger, the battery).
+fn carry_lines(from: &Machine, to: &mut Machine) {
+    for (port, mask) in [(0, 1 << 5), (2, 0xff)] {
+        for bit in 0..8 {
+            if mask & (1 << bit) != 0 {
+                let level = from.pin(port, 1 << bit);
+                to.set_pin(port, 1 << bit, level);
+            }
+        }
+    }
 }
 
 fn digest(px: &[u8]) -> String {
@@ -326,11 +389,154 @@ impl Driver {
                 if name == "hold" {
                     self.hold = level as u8;
                 }
+                if name == "cna" && level && matches!(self.fw, Fw::Disk { .. }) {
+                    // the cable is out: the disk-mode program restarts the iPod by jumping to 0
+                    self.m.hook_pcs = vec![0];
+                    self.m.hook_log.clear();
+                    self.fw = Fw::Leaving { deadline: self.m.now() + 6_000_000 };
+                }
                 Some(json!({"do": "line", "name": name, "level": level as u8}))
             }
             _ => None,
         }
     }
+    /// Follow the iPod into and out of disk mode; whether the machine was replaced (the clock starts again).
+    fn cable(&mut self, hub: &nbd::Hub, per_orb: u32) -> Result<bool, String> {
+        match &mut self.fw {
+            Fw::Normal => {
+                if !sbp2::wants_diskmode(&mut self.m) {
+                    return Ok(false);
+                }
+                if self.chip.is_none() {
+                    let aupd = pp5002::card::read_image(&DiskRef(self.disk.clone()), b"aupd").map_err(|e| format!("disk mode: the card's {e}"))?.0;
+                    self.chip = Some(pp5002::flash::assemble(&aupd).map_err(|e| format!("disk mode: the card's aupd: {e}"))?);
+                }
+                let cfg = Config { persist: true, ..Config::default() };
+                let mut m = sbp2::enter(&mut self.m, self.chip.as_ref().unwrap(), Box::new(DiskRef(self.disk.clone())), cfg);
+                carry_lines(&self.m, &mut m);
+                self.m = m;
+                self.fw = Fw::Disk { session: None, next_try: 3_000_000 };
+            }
+            Fw::Disk { session: Some(_), .. } => return Ok(false),
+            Fw::Disk { session, next_try } => {
+                if self.m.now() < *next_try {
+                    return Ok(false);
+                }
+                match sbp2::connect(&mut self.m, per_orb, 0) {
+                    Ok(s) => {
+                        eprintln!("[fwdisk] logged in: {} sectors, {}", s.blocks, String::from_utf8_lossy(s.inquiry.get(8..).unwrap_or(&[])).trim_end());
+                        hub.open(s.blocks, true);
+                        *session = Some(s);
+                    }
+                    Err(_) => *next_try = self.m.now() + 1_000_000,
+                }
+                // the login runs the machine ahead of the wall clock
+                return Ok(true);
+            }
+            Fw::Leaving { deadline } => {
+                if self.m.hook_log.is_empty() && self.m.now() < *deadline {
+                    return Ok(false);
+                }
+                let osos = pp5002::card::read_osos(&DiskRef(self.disk.clone()))?.0;
+                let mut m = Machine::with_disk(&osos, Box::new(DiskRef(self.disk.clone())), live_cfg());
+                carry_lines(&self.m, &mut m);
+                self.m = m;
+                self.fw = Fw::Normal;
+                self.m.boot();
+            }
+        }
+        *hub.export.lock().unwrap() = None;
+        self.down.clear();
+        self.screen = pp5002::lcd::Screen::default();
+        self.update_screen();
+        Ok(true)
+    }
+
+    /// The host's requests (nbd), through the disk-mode program; whether any ran (they run the machine ahead of the wall clock).
+    fn serve(&mut self, hub: &nbd::Hub) -> bool {
+        let reqs: Vec<nbd::Req> = hub.reqs.lock().unwrap().drain(..).collect();
+        let gen = hub.current();
+        let any = !reqs.is_empty();
+        for r in reqs {
+            let answer = match (&self.fw, r.gen == gen) {
+                (Fw::Disk { session: Some(s), .. }, true) => {
+                    let s = s.clone();
+                    match r.op {
+                        nbd::Op::Read(lba, n) => s.read(&mut self.m, lba, n).map_err(|e| {
+                            eprintln!("[fwdisk] read {n} at {lba}: {e}");
+                            nbd::EIO
+                        }),
+                        nbd::Op::Write(lba, data) if !self.disk.room(lba, data.len() as u64 / 512) => {
+                            eprintln!("[fwdisk] write at {lba}: the session's {} MB of changes are used up", crate::disk::CAP_SECTORS / 2048);
+                            Err(nbd::ENOSPC)
+                        }
+                        nbd::Op::Write(lba, data) => s.write(&mut self.m, lba, &data).map(|_| vec![]).map_err(|e| {
+                            eprintln!("[fwdisk] write {} at {lba}: {e}", data.len() / 512);
+                            nbd::EIO
+                        }),
+                        nbd::Op::Flush => {
+                            self.disk.sync();
+                            Ok(vec![])
+                        }
+                        nbd::Op::Eject => {
+                            self.disk.sync();
+                            // START STOP UNIT: load/eject, stop
+                            match sbp2::transfer(&mut self.m, &[0x1b, 0, 0, 0, 0x02, 0], 0, None) {
+                                Ok(_) => {
+                                    eprintln!("[fwdisk] ejected: the iPod may be disconnected");
+                                    self.ejected = r.gen;
+                                    Ok(vec![])
+                                }
+                                Err(e) => {
+                                    eprintln!("[fwdisk] eject: {e}");
+                                    Err(nbd::EIO)
+                                }
+                            }
+                        }
+                        nbd::Op::Scsi(cdb, _, Some(data)) if cdb[0] == 0x2a && !self.disk.room(u32::from_be_bytes(cdb[2..6].try_into().unwrap()) as u64, data.len() as u64 / 512) => {
+                            eprintln!("[fwdisk] write: the session's {} MB of changes are used up", crate::disk::CAP_SECTORS / 2048);
+                            Err(nbd::ENOSPC)
+                        }
+                        nbd::Op::Scsi(cdb, len, data) => {
+                            // SYNCHRONIZE CACHE, and START STOP UNIT (an eject): what the session has written goes to the card first
+                            if matches!(cdb[0], 0x35 | 0x1b) {
+                                self.disk.sync();
+                            }
+                            s.exec(&mut self.m, &cdb, len, data.as_deref()).map(|r| crate::iscsi::encode(&r)).map_err(|e| {
+                                eprintln!("[fwdisk] command {:02x?}: {e}", cdb);
+                                nbd::EIO
+                            })
+                        }
+                    }
+                }
+                _ => Err(nbd::ESHUTDOWN),
+            };
+            let _ = r.reply.send(answer);
+        }
+        if any {
+            self.update_screen();
+        }
+        any
+    }
+
+    fn fw_state(&self, hub: &nbd::Hub) -> Value {
+        let mode = match &self.fw {
+            Fw::Normal => "normal",
+            Fw::Disk { session: None, .. } => "booting",
+            Fw::Disk { .. } if self.ejected != 0 && self.ejected == hub.current() => "ejected",
+            Fw::Disk { .. } => "ready",
+            Fw::Leaving { .. } => "leaving",
+        };
+        let blocks = match &self.fw {
+            Fw::Disk { session: Some(s), .. } => json!(s.blocks),
+            _ => Value::Null,
+        };
+        let h = *hub.holders.lock().unwrap();
+        json!({"mode": mode, "nbd": *hub.addr.lock().unwrap(), "export": nbd::EXPORT, "blocks": blocks, "kept": self.disk.keep,
+               "clients": hub.clients.load(std::sync::atomic::Ordering::SeqCst), "iscsi": *hub.iscsi_addr.lock().unwrap(),
+               "target": crate::iscsi::TARGET, "host": if h[1] > 0 { json!("iscsi") } else if h[0] > 0 { json!("nbd") } else { Value::Null }})
+    }
+
     fn stats(&mut self) -> Value {
         let s = &self.m.s;
         let mut v = json!({
@@ -409,20 +615,14 @@ pub type Next = Value;
 /// Boot `card` and run it in real time until a restart or quit command; returns that command.
 pub fn run(shared: &Arc<Shared>, card: &Card) -> Result<Next, String> {
     let osos = crate::card::read_osos(&card.path).map_err(|e| format!("the card's firmware: {e}"))?;
-    let cfg = Config {
-        cop_ipus: 26,
-        interleave_playing: 300,
-        interleave_settle: 200_000,
-        audio_fpf: None,
-        start_volume: Some(START_VOLUME),
-        persist: card.keep,
-        slice_clock: true,
-        lazy_map: true,
-        ..Config::default()
-    };
-    let m = Machine::new(&osos, &card.path, cfg).map_err(|e| format!("{}: {e}", card.path))?;
+    let disk = SessionDisk::open(&card.path, card.keep).map_err(|e| format!("{}: {e}", card.path))?;
+    let m = Machine::with_disk(&osos, Box::new(DiskRef(disk.clone())), live_cfg());
     let glyphs: HashMap<String, String> = serde_json::from_str(GLYPHS).unwrap_or_default();
-    let mut d = Driver { m, screen: pp5002::lcd::Screen::default(), step_n: 0, down: HashMap::new(), hold: 0, changed: false, digest: String::new() };
+    let mut d = Driver { m, fw: Fw::Normal, disk, chip: None, ejected: 0, screen: pp5002::lcd::Screen::default(), step_n: 0, down: HashMap::new(), hold: 0,
+                         changed: false, digest: String::new() };
+    let hub = shared.nbd.clone();
+    *hub.export.lock().unwrap() = None;
+    let per_orb = *shared.orb_sectors.lock().unwrap();
     d.m.boot();
     d.update_screen();
     d.hold = d.m.pin(0, 1 << 5) as u8;
@@ -448,7 +648,11 @@ pub fn run(shared: &Arc<Shared>, card: &Card) -> Result<Next, String> {
             }
             let c = pending.pop_front().unwrap();
             match c["do"].as_str().unwrap_or("") {
-                "restart" | "quit" => return Ok(c),
+                "restart" | "quit" => {
+                    *hub.export.lock().unwrap() = None;
+                    d.serve(&hub);
+                    return Ok(c);
+                }
                 "jack" => {
                     // the sound to this machine's output (plugged) or back to the browsers; the iPod is not told
                     let on = c["plugged"].as_bool().unwrap_or(false);
@@ -474,6 +678,24 @@ pub fn run(shared: &Arc<Shared>, card: &Card) -> Result<Next, String> {
             }
         }
         d.step();
+        let replaced = match d.cable(&hub, per_orb) {
+            Ok(r) => r,
+            Err(e) => {
+                // osos asked for disk mode but there is none to give: it restarts, as the iPod would without its flash
+                eprintln!("[fwdisk] {e}");
+                shared.st.lock().unwrap().notice = e;
+                let osos = pp5002::card::read_osos(&DiskRef(d.disk.clone()))?.0;
+                let mut m = Machine::with_disk(&osos, Box::new(DiskRef(d.disk.clone())), live_cfg());
+                carry_lines(&d.m, &mut m);
+                d.m = m;
+                d.m.boot();
+                true
+            }
+        };
+        if d.serve(&hub) || replaced {
+            wall0 = Instant::now();
+            emu0 = d.m.now();
+        }
         let (gl, gr) = (gain(d.m.s.hp[0]), gain(d.m.s.hp[1]));
         let samples = d.m.s.audio.take();
         if !samples.is_empty() {
@@ -504,6 +726,7 @@ pub fn run(shared: &Arc<Shared>, card: &Card) -> Result<Next, String> {
             keys.sort();
             st.keys = keys;
             st.lines = LINES.iter().map(|&(k, p, m)| (k.to_string(), d.m.pin(p, m) as u8)).collect();
+            st.fwdisk = d.fw_state(&hub);
             let mut wake = false;
             if d.changed {
                 d.changed = false;
@@ -514,8 +737,8 @@ pub fn run(shared: &Arc<Shared>, card: &Card) -> Result<Next, String> {
                 wake = true;
             }
             let jack = shared.host.state(0);
-            let sig = format!("{}|{}|{}|{:?}|{:?}|{:?}|{}|{}", st.clicks, st.audio, st.backlight, st.keys, st.lines,
-                              st.recent.back().map(|v| v.to_string()), jack["plugged"], jack["error"]);
+            let sig = format!("{}|{}|{}|{:?}|{:?}|{:?}|{}|{}|{}", st.clicks, st.audio, st.backlight, st.keys, st.lines,
+                              st.recent.back().map(|v| v.to_string()), jack["plugged"], jack["error"], st.fwdisk);
             if sig != st.sig {
                 st.sig = sig;
                 st.ver += 1;

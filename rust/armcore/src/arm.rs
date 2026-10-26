@@ -337,6 +337,7 @@ fn ldsth<B: Bus, const L: bool, const IMM: bool>(c: &mut Cpu, b: &mut B, i: u32)
             2 => b.read8(addr) as i8 as i32 as u32,
             _ => {
                 if addr & 1 != 0 {
+                    b.misaligned(addr, 2);
                     b.read8(addr) as i8 as i32 as u32
                 } else {
                     b.read16(addr) as i16 as i32 as u32

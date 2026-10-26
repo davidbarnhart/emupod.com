@@ -191,6 +191,8 @@ ul.ev li{padding:4px 0;border-bottom:1px solid var(--line)}
  <p class="small">Each button flips the line the firmware watches and shows its level. Power alone is a charger.
  A cable makes the iPod ask to reboot into disk mode. The battery line reads low from power-on, but the
  firmware only reacts to an edge: set it high, then low again, and it draws "Low Battery".</p>
+ <div id="fwdisk" hidden><p class="small" id="fwdisk-state"></p>
+ <pre class="small" id="fwdisk-how" style="white-space:pre-wrap;word-break:break-all;margin:0"></pre></div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="notice" id="notice" hidden onclick="this.hidden=true"></div>
@@ -477,6 +479,25 @@ function render(s){state=s;if(s.clicks!=null)clicks(s.clicks);msUpdate(s);
  if(j.error&&j.error!==render.aerr)toast('Audio on host: '+j.error);render.aerr=j.error;syncStream();
  document.querySelectorAll('[data-line]').forEach(b=>{const on=(s.lines||{})[b.dataset.line]===+b.dataset.on;
   b.textContent=on?b.dataset.t1:b.dataset.t0;b.classList.toggle('on',on&&b.dataset.line!=='battery')});
+ // disk mode: what the iPod is doing, and how the server's computer attaches it (the server serves it as an NBD export)
+ const fd=s.fwdisk||{},fe=$('fwdisk');fe.hidden=!fd.mode||fd.mode==='normal';
+ if(!fe.hidden){
+  $('fwdisk-state').textContent={booting:'Disk mode: the iPod is starting its disk-mode program…',
+   ready:'Disk mode: the computer running emupod can attach the iPod as a disk. Reads and writes go through the iPod’s own disk-mode program.'+
+    (fd.kept?' Writes go to the card.':' This card’s changes are discarded: writes last until the iPod restarts, and the card file is never changed.'),
+   ejected:'The computer ejected the iPod: OK to disconnect. Click the cable out.',
+   leaving:'Cable out: the iPod is restarting…'}[fd.mode]||'';
+  // the mount service (sudo emupod setup-automount) mounts it here and unmounts it before the cable comes out; without it, by hand
+  const at=fd.nbd||'',k=at.lastIndexOf(':'),m=fd.mount||{},auto={mounting:'Mounting the iPod’s disk…',
+   mounted:'Mounted at '+m.at+' ('+m.dev+'). Unplugging the cable unmounts it first.',
+   unmounting:'Unmounting the iPod’s disk (its last writes go through the iPod first)…',unmounted:'Unmounted: the cable is coming out.',
+   busy:'Not unplugged: the disk is '+m.error+'.',error:'Automatic mounting: '+m.error}[m.state];
+  if(fd.mode==='leaving'&&m.state==='unmounted')$('fwdisk-state').textContent='Unmounted. Cable out: the iPod is restarting…';
+  $('fwdisk-how').textContent=fd.mode!=='ready'?'':!at?'This server does not serve disk mode (started with --nbd off, or its address was in use).':
+   auto&&m.state!=='error'?auto:(auto?auto+'\n\n':'')+(m.setup?'To have it mounted automatically, run once:\n'+m.setup+'\n\nOr attach it by hand:\n':'')+
+   'sudo modprobe nbd max_part=8\nsudo nbd-client '+at.slice(0,k)+' '+at.slice(k+1)+' /dev/nbd0 -N '+fd.export+
+   '\nsudo mkdir -p /media/emupod && sudo mount /dev/nbd0p2 /media/emupod\n\nBefore the cable comes out:\nsudo umount /media/emupod && sudo nbd-client -d /dev/nbd0';
+ }
 }
 // ---- Statistics (Session sheet). Three measures, each a chart of the last five minutes of one-second averages with the last 3 s beside it.
 // LATENCY: the round trip of a tiny /ping; under 60 ms is good, under 150 ms fair.

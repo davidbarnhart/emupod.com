@@ -494,7 +494,7 @@ class Reach:
             stray=["0x%08x" % a for a in sorted(self.stray_first)])
 
 
-# RTXC's task table (decomp #834, tools/fw_tasks.py): 56-byte TCBs, stack base (low end) at +0x14, size at +0x18.
+# RTXC's task table: 56-byte TCBs, stack base (low end) at +0x14, size at +0x18.
 TCB_ARRAY, TCB_SIZE, TASK_COUNT = 0x004b5d18, 56, 0x003e50d0
 MODES = {0x10: "usr", 0x11: "fiq", 0x12: "irq", 0x13: "svc", 0x17: "abt", 0x1b: "und", 0x1f: "sys"}
 

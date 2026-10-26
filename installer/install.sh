@@ -3,7 +3,8 @@
 #
 #   curl -fsSL https://emupod.com/install.sh | sh
 #
-# It installs one program into your home directory (no root needed, except for the optional card-burning permission), downloads nothing
+# It installs one program into your home directory (no root needed, except for two optional extras: the card-burning permission and
+# the service that mounts the emulated iPod's disk), downloads nothing
 # from Apple until you ask for a firmware, and writes nothing to any iPod or card. Read it before you run it: it is a short shell script.
 #
 # Environment: EMUPOD_VERSION (default: the latest release), EMUPOD_HOME (default ~/emupod), EMUPOD_PORT (default 8797), EMUPOD_YES=1 (accept every default).
@@ -39,7 +40,9 @@ command -v sha256sum >/dev/null 2>&1 || die "sha256sum is missing (it is part of
 RULE=/etc/udev/rules.d/70-emupod-sd.rules
 CAN_BURN=""; command -v udevadm >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && [ ! -e "$RULE" ] && CAN_BURN=1
 CAN_BOOT=""; command -v systemctl >/dev/null 2>&1 && [ -d "$HOME/.config" ] && CAN_BOOT=1
-TOTAL=$((6 + ${CAN_BURN:-0} + ${CAN_BOOT:-0})); STEP=0
+MOUNT_UNIT=/etc/systemd/system/emupod-mount.service
+CAN_MOUNT=""; command -v systemctl >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && { [ -d /sys/module/nbd ] || modinfo nbd >/dev/null 2>&1; } && CAN_MOUNT=1
+TOTAL=$((6 + ${CAN_BURN:-0} + ${CAN_MOUNT:-0} + ${CAN_BOOT:-0})); STEP=0
 step() { STEP=$((STEP + 1)); say ""; say "$STEP of $TOTAL: $1"; }
 say "This setup script will guide you through the $TOTAL steps needed to set up emupod on your computer."
 
@@ -130,6 +133,25 @@ if [ -n "$CAN_BURN" ]; then
     esac
 fi
 
+# 4c. optional: mounting the emulated iPod's disk. emupod runs as this user; attaching a block device and mounting it need root, so a
+# small root service (emupod mount-service, set up by `emupod setup-automount`) does only that, for this user. An installed one is
+# updated to this version (it runs its own copy of the program).
+if [ -n "$CAN_MOUNT" ]; then
+    step "Mounting the iPod's disk (optional)"
+    say "emupod runs as your own user, without root privileges. A few things need root, such as mounting the emulated iPod's disk"
+    say "when you plug in its FireWire cable on the iPod page. For those, emupod can install a small service that runs as root and"
+    say "does only that: it mounts the iPod's disk at /media/emupod when the cable goes in, and unmounts it before the cable comes out."
+    say "Only your user can ask it to do anything."
+    if [ "${EMUPOD_YES:-}" = 1 ] || [ ! -r /dev/tty ]; then ANSWER=N          # no one to ask: nothing is done with sudo unattended
+    elif [ -e "$MOUNT_UNIT" ]; then yesno "The mount service is installed: update it to this version?" Y
+    else yesno "Install the mount service now?" Y; fi
+    case "$ANSWER" in Y)
+        if sudo "$HOME_DIR/bin/emupod" setup-automount --user "$USER"; then note "the iPod's disk is mounted automatically"
+        else say "Could not set up the mount service: disk mode still works, attached by hand (the iPod page shows how)."; fi ;;
+    *) note "the mount service is $([ -e "$MOUNT_UNIT" ] && echo 'left as it is' || echo 'not installed') (later: sudo $HOME_DIR/bin/emupod setup-automount)" ;;
+    esac
+fi
+
 # 5. a start script, and the optional system service
 CMD="$HOME_DIR/bin/emupod web --host $HOSTARG --port $PORT --cards $CARDS"
 [ -z "$MUSIC" ] || CMD="$CMD --music-root $MUSIC"
@@ -150,7 +172,7 @@ IP="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ -n "$IP" ] || IP="localhos
 step "Done"
 note "emupod is installed$([ "${STARTED:-}" = 1 ] && echo ' and running')"
 note "the first start downloads the built-in card, Rainbow Road (a few megabytes, one time)"
-note "to uninstall: remove $HOME_DIR and $HOME/.config/systemd/user/emupod.service (and $RULE, with sudo, if card burning was allowed); your cards stay in $CARDS"
+note "to uninstall: run sudo $HOME_DIR/bin/emupod remove-automount if the mount service is installed, then remove $HOME_DIR and $HOME/.config/systemd/user/emupod.service (and $RULE, with sudo, if card burning was allowed); your cards stay in $CARDS"
 say ""
 [ "${STARTED:-}" = 1 ] || say "Start it:   $HOME_DIR/start.sh"
 say "Open on your phone (same Wi-Fi):   http://$IP:$PORT/"

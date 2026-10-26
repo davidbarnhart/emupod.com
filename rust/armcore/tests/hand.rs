@@ -5,10 +5,11 @@ use armcore::*;
 struct Ram {
     m: Vec<u8>,
     seen: Vec<(Exception, u32)>,
+    mis: Vec<(u32, u32)>,
 }
 impl Ram {
     fn new() -> Ram {
-        Ram { m: vec![0; 0x10000], seen: vec![] }
+        Ram { m: vec![0; 0x10000], seen: vec![], mis: vec![] }
     }
     fn arm(&mut self, at: u32, code: &[u32]) {
         for (i, w) in code.iter().enumerate() {
@@ -44,6 +45,9 @@ impl Bus for Ram {
     fn exception(&mut self, k: Exception, pc: u32) {
         self.seen.push((k, pc));
     }
+    fn misaligned(&mut self, a: u32, size: u32) {
+        self.mis.push((a, size));
+    }
 }
 
 fn start(ram: &mut Ram, mode: u32) -> Core<Ram> {
@@ -76,6 +80,29 @@ fn unaligned_halfword_load_rotates_by_eight() {
     c.cpu.r[1] = 0x2001;
     c.run(&mut ram, 1);
     assert_eq!(c.cpu.r[0], 0x1100_0022);
+}
+
+#[test]
+fn odd_signed_halfword_load_reports_misaligned() {
+    // LDRSH at an odd address loads the sign-extended byte (ARM7TDMI) and, like LDRH there, tells the bus it was misaligned
+    let mut ram = Ram::new();
+    ram.write32(0x2000, 0x4433_8211);
+    ram.arm(0x1000, &[0xe1d1_00f0, 0xe1d1_00b0]); // ldrsh r0, [r1] ; ldrh r0, [r1]
+    let mut c = start(&mut ram, MODE_SVC);
+    c.cpu.r[1] = 0x2001;
+    c.run(&mut ram, 1);
+    assert_eq!(c.cpu.r[0], 0xffff_ff82);
+    c.run(&mut ram, 1);
+    assert_eq!(ram.mis, vec![(0x2001, 2), (0x2001, 2)]);
+    let mut ram = Ram::new();
+    ram.write32(0x2000, 0x4433_8211);
+    ram.thumb(0x1000, &[0x5e88]); // ldsh r0, [r1, r2]
+    let mut c = start(&mut ram, MODE_SVC | BIT_T);
+    c.cpu.r[1] = 0x2000;
+    c.cpu.r[2] = 1;
+    c.run(&mut ram, 1);
+    assert_eq!(c.cpu.r[0], 0xffff_ff82);
+    assert_eq!(ram.mis, vec![(0x2001, 2)]);
 }
 
 #[test]

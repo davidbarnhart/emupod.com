@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does a firmware hold the disk-manager client while Refresh Library crawls? (the gate firmware proposed, bridge #1309)
+"""Does a firmware hold the disk-manager client while Refresh Library crawls?
 
     python3 tests/test_diskmgr_hold.py OSOS_IPSW CARD.img [--expect hold|nohold]
 

@@ -13,6 +13,12 @@ fn u32le(b: &[u8], o: usize) -> u32 {
 
 /// The osos image and its load address, or why the card has none.
 pub fn read_osos(d: &dyn Disk) -> Result<(Vec<u8>, u32), String> {
+    read_image(d, b"osos")
+}
+
+/// An image of the card's firmware directory by its type (b"osos", b"aupd"), with its load address, or why the card has none.
+pub fn read_image(d: &dyn Disk, want: &[u8; 4]) -> Result<(Vec<u8>, u32), String> {
+    let name = String::from_utf8_lossy(want);
     let mbr = rd(d, 0, 512);
     if mbr[510..512] != [0x55, 0xaa] {
         return Err("no partition table (sector 0 has no MBR signature)".into());
@@ -35,15 +41,15 @@ pub fn read_osos(d: &dyn Disk) -> Result<(Vec<u8>, u32), String> {
         }
         let mut typ = [e[4], e[5], e[6], e[7]];
         typ.reverse();
-        if &typ != b"osos" {
+        if &typ != want {
             continue;
         }
         let (dev, len, addr, cksum) = (u32le(e, 12) as u64, u32le(e, 16) as usize, u32le(e, 20), u32le(e, 28));
         let osos = rd(d, base + dev + if fmt == 3 { 512 } else { 0 }, len);
         if osos.iter().fold(0u32, |a, &b| a.wrapping_add(b as u32)) != cksum {
-            return Err("osos checksum mismatch".into());
+            return Err(format!("{name} checksum mismatch"));
         }
         return Ok((osos, addr));
     }
-    Err("no osos in the firmware directory".into())
+    Err(format!("no {name} in the firmware directory"))
 }
