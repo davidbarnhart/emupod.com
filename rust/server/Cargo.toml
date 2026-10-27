@@ -1,6 +1,6 @@
 [package]
 name = "emupod-server"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "emupod's self-hosted server as one program: the iPod emulator (pp5002) behind the web page you open on your phone"
 license = "MIT"

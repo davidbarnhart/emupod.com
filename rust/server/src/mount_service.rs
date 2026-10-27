@@ -527,7 +527,7 @@ pub fn setup(args: &[String]) -> i32 {
             return 1;
         }
     } else {
-        println!("  no /etc/polkit-1/rules.d: the desktop's Eject will ask for a password (the page's cable button needs none)");
+        println!("  no /etc/polkit-1/rules.d: the desktop's Eject will ask for a password (the page's FireWire switch needs none)");
     }
     // no sandboxing options that give the service its own mount namespace (ProtectSystem, ProtectHome, PrivateTmp, ...): its mounts must
     // be the ones everyone sees

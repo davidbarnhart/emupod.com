@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FireWire disk mode in the server (emupod web): the page's cable button puts the iPod into disk mode, and a host writes and reads it
+"""FireWire disk mode in the server (emupod web): the page's FireWire switch puts the iPod into disk mode, and a host writes and reads it
 as a block device (NBD), through the iPod's own disk-mode program. Needs Apple's firmware, which this repository does not carry, so it
 runs only when given it (and skips otherwise):
 

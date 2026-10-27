@@ -65,6 +65,17 @@ html.dark .ipod{box-shadow:0 0 0 1px rgba(255,255,255,.10),0 1px 0 1px rgba(255,
 .aout .sw::after{content:"";position:absolute;top:1px;left:2px;width:14px;height:10px;border-radius:2px;background:#f4f4f5;
  box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
 .aout.on .sw::after{left:18px}.aout .here{color:var(--acc)}.aout.on .here{color:var(--mute)}.aout.on .host{color:var(--acc)}
+/* The FireWire cable, below the iPod between the two buttons (hosted only: the other end is taken to be in the host already, through
+   the server's disk mode). "FireWire" over "Plugged In [switch] Unplugged"; a phone's narrower bar: over "In [switch] Out". */
+.fw{display:inline-flex;flex-direction:column;align-items:center;gap:1px;border:0;background:none;padding:0;cursor:pointer;color:var(--mute);
+ font-family:'ChicagoFLF',Charcoal,sans-serif;font-size:12px;white-space:nowrap;max-width:100%}
+.fw .r{display:inline-flex;align-items:center;gap:5px}
+.fw .sw{width:34px;height:12px;border-radius:3px;background:#b9babd;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.25) inset}
+.fw .sw::after{content:"";position:absolute;top:1px;left:18px;width:14px;height:10px;border-radius:2px;background:#f4f4f5;
+ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.fw.in .sw::after{left:2px}.fw .out,.fw.in .in{color:var(--acc)}.fw.in .out{color:var(--mute)}
+.fw .s{display:none}.fw.wait{opacity:.55}
+@media (max-width:480px){.fw{font-size:11px}.fw .l{display:none}.fw .s{display:inline}}
 .bezel{position:absolute;left:16.4%;width:66.7%;top:6.3%;height:calc(var(--w)*1.65*.321);      /* measured off a real 1G (David's photos, 2026-10-22) */
  background:#3b3e38;border-radius:calc(var(--w)*.018);
  padding:calc(var(--w)*.016) calc(var(--w)*.018);box-shadow:0 1px 0 rgba(255,255,255,.8),0 0 0 1px rgba(0,0,0,.25),0 2px 4px rgba(0,0,0,.25) inset;
@@ -156,7 +167,9 @@ ul.ev li{padding:4px 0;border-bottom:1px solid var(--line)}
   <div class="center" id="z-select"></div>
  </div>
 </div>
-<div class="bar"><a class="pill" id="runown" href="install.html">Run your own &rarr;</a><a class="pill" id="cardsbtn" href="cards.html">Cards</a><span class="sp" id="status">connecting…</span>
+<div class="bar"><a class="pill" id="runown" href="install.html">Run your own &rarr;</a><a class="pill" id="cardsbtn" href="cards.html">Cards</a><span class="sp"><span id="status">connecting…</span><button class="fw" id="fwsw" hidden
+ aria-label="FireWire cable"><span class="cap">FireWire</span><span class="r"><span class="in"><span class="l">Plugged In</span><span class="s">In</span></span><span
+ class="sw"></span><span class="out"><span class="l">Unplugged</span><span class="s">Out</span></span></span></button></span>
 <button class="pill" id="more">Session</button></div>
 
 <div class="scrim" id="scrim"></div>
@@ -185,11 +198,10 @@ ul.ev li{padding:4px 0;border-bottom:1px solid var(--line)}
  <h3>Accessories</h3>
  <div class="row">
   <button class="btn" data-line="firewire" data-on="0" data-off="1" data-t1="FireWire power: on" data-t0="FireWire power: off">FireWire power</button>
-  <button class="btn" data-line="cna" data-on="0" data-off="1" data-t1="FireWire cable: in" data-t0="FireWire cable: out">FireWire cable</button>
   <button class="btn" data-line="battery" data-on="1" data-off="0" data-t1="Battery line: high" data-t0="Battery line: low">Battery line</button>
  </div>
- <p class="small">Each button flips the line the firmware watches and shows its level. Power alone is a charger.
- A cable makes the iPod ask to reboot into disk mode. The battery line reads low from power-on, but the
+ <p class="small">Each button flips the line the firmware watches and shows its level. Power alone is a charger;
+ the cable is the FireWire switch below the iPod. The battery line reads low from power-on, but the
  firmware only reacts to an edge: set it high, then low again, and it draws "Low Battery".</p>
  <div id="fwdisk" hidden><p class="small" id="fwdisk-state"></p>
  <pre class="small" id="fwdisk-how" style="white-space:pre-wrap;word-break:break-all;margin:0"></pre></div>
@@ -313,6 +325,8 @@ addEventListener('keyup',e=>{if(KM[e.key]&&kdown[e.key]){delete kdown[e.key];key
 
 function toggleHold(){send({do:'line',name:'hold',level:state.hold?0:1});buzz(10)}
 $('hold').onclick=toggleHold;
+// the FireWire cable: in or out
+$('fwsw').onclick=()=>{const plugged=(state.lines||{}).cna===0;send({do:'line',name:'cna',level:plugged?1:0});buzz(10)};
 document.querySelectorAll('[data-line]').forEach(b=>b.onclick=()=>{const n=b.dataset.line,on=(state.lines||{})[n]===+b.dataset.on;
  send({do:'line',name:n,level:+(on?b.dataset.off:b.dataset.on)});buzz(10)});
 
@@ -472,6 +486,9 @@ function render(s){state=s;if(s.clicks!=null)clicks(s.clicks);msUpdate(s);
  {const pal=s.backlight?PAL_BL:PAL;if(pal!==PALC){PALC=pal;if(lastPx)draw(lastPx)}}
  const cn=$('cardnow');if(cn)cn.textContent=s.card?'Running card “'+s.card.name+'”'+(s.card.keep?'':' (changes discarded)'):'Running the built-in card';
  $('status').textContent=s.phase==='running'?'':s.phase+'…';
+ // the cable switch: on the hosted page, while the iPod runs (the status takes its place otherwise); dimmed while an unmount holds it
+ const fw=$('fwsw'),ms=((s.fwdisk||{}).mount||{}).state;fw.hidden=!!window.OFFLINE||!s.fwdisk||s.phase!=='running';
+ fw.classList.toggle('in',(s.lines||{}).cna===0);fw.classList.toggle('wait',ms==='unmounting'||ms==='mounting');
  $('hold').classList.toggle('on',!!s.hold);
  if(s.notice&&s.notice!==render.note){render.note=s.notice;$('notice').textContent=s.notice;$('notice').hidden=false}
  else if(!s.notice&&render.note){render.note='';$('notice').hidden=true}
@@ -485,7 +502,7 @@ function render(s){state=s;if(s.clicks!=null)clicks(s.clicks);msUpdate(s);
   $('fwdisk-state').textContent={booting:'Disk mode: the iPod is starting its disk-mode program…',
    ready:'Disk mode: the computer running emupod can attach the iPod as a disk. Reads and writes go through the iPod’s own disk-mode program.'+
     (fd.kept?' Writes go to the card.':' This card’s changes are discarded: writes last until the iPod restarts, and the card file is never changed.'),
-   ejected:'The computer ejected the iPod: OK to disconnect. Click the cable out.',
+   ejected:'The computer ejected the iPod: OK to disconnect. Switch the cable out.',
    leaving:'Cable out: the iPod is restarting…'}[fd.mode]||'';
   // the mount service (sudo emupod setup-automount) mounts it here and unmounts it before the cable comes out; without it, by hand
   const at=fd.nbd||'',k=at.lastIndexOf(':'),m=fd.mount||{},auto={mounting:'Mounting the iPod’s disk…',
@@ -620,7 +637,7 @@ setInterval(()=>{const s=NET.ipod;if(!s){IP.snap=null;return}
  axis('ax-ip');
  $('ipod-note').textContent='CPU usage is the instructions a processor ran over what it could run (a halted processor uses none; the firmware\'s wait loops count as busy). Work (the big number) leaves out the wait loops, which the emulator skips; asleep is time the processor was halted. CPU 1 sends CPU 2 messages (the player\'s work, the decoding of the song) and can wake it; the sound wakes it too. Sound underruns are the times the firmware found no sound ready and sent silence (a click or a gap). Emulator speed is iPod time over real time: 1× keeps up; below '+SPD_GOOD+' the emulation is falling behind. Storage is the disk commands the firmware issues.'},1000);
 async function loop(){for(;;){try{const r=await fetch('/state?wait=1&since='+last+'&ver='+(state.ver??''));const tx=await r.text();netBytes(tx.length);const s=JSON.parse(tx);
-  if(s.px){draw(s.px);last=s.screen}render(s)}catch(e){$('status').textContent='reconnecting…';if(window.onLoopError)window.onLoopError(e);
+  if(s.px){draw(s.px);last=s.screen}render(s)}catch(e){$('status').textContent='reconnecting…';$('fwsw').hidden=true;if(window.onLoopError)window.onLoopError(e);
   last='';await new Promise(r=>setTimeout(r,800))}}}
 loop();
 </script><div id="getsheet" hidden><button id="getclose" type="button">Close</button><iframe id="getframe" title="Run your own emupod"></iframe></div><script>(function(){var sh=document.getElementById('getsheet'),fr=document.getElementById('getframe');function close(){sh.hidden=true}document.getElementById('runown').addEventListener('click',function(e){e.preventDefault();if(!fr.getAttribute('src'))fr.src='install.html';sh.hidden=false});document.getElementById('getclose').addEventListener('click',close);addEventListener('message',function(e){if(e.data==='emupod-close')close()})})()</script></body></html>
